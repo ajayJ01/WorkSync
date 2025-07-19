@@ -73,6 +73,7 @@
                   <option v-if="status === 'in_progress'" value="in_progress">In Progress</option>
                   <option v-if="status === 'submitted'" value="submitted">Submitted</option>
                   <option v-if="status === 'due'" value="due">Expired</option>
+                  <option v-if="status === 'rejected'" value="rejected">Rejected</option>
                   <option value="verified">Done</option>
                 </select>
                 <label for="floatingStatus">Task Status</label>
@@ -93,6 +94,76 @@
               </button>
             </form>
 
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- VERIFY SUBMISSION MODAL (Updated Attachments UI) -->
+    <div class="modal fade" id="verifySubmissionModal" tabindex="-1" ref="verifySubmissionModal" aria-hidden="true">
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content p-3 rounded-4">
+          <div class="modal-header border-0">
+            <h5 class="modal-title text-primary">
+              <i class="bi bi-clipboard-check me-2"></i> Review Submission
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div v-if="selectedTask">
+              <div class="mb-2"><b>Title:</b> {{ selectedTask.title }}</div>
+              <div class="mb-2"><b>Description:</b> {{ selectedTask.description }}</div>
+              <div class="mb-2"><b>Submitted Marks:</b> {{ selectedTask.submittedMarks ?? 'N/A' }}</div>
+              <div class="mb-3">
+                <b>Submitted File:</b>
+                <div class="mt-2">
+                  <div v-if="selectedTask.submissionFileUrl"
+                    class="file-card p-2 rounded-3 border d-inline-flex align-items-center gap-3 bg-white shadow-sm">
+                    <template v-if="isImage(selectedTask.submissionFileUrl)">
+                      <a :href="getFullFileUrl(selectedTask.submissionFileUrl)" target="_blank"
+                        :title="selectedTask.submissionFileUrl.split('/').pop()"
+                        class="d-flex align-items-center text-decoration-none">
+                        <img :src="getFullFileUrl(selectedTask.submissionFileUrl)" alt="Image"
+                          class="img-thumbnail shadow-sm attachment-img"
+                          style="width:42px; height:42px; object-fit:cover;" />
+                        <span class="file-label ms-2 text-primary">{{ selectedTask.submissionFileUrl.split('/').pop()
+                        }}</span>
+                      </a>
+                    </template>
+                    <template v-else>
+                      <a :href="getFullFileUrl(selectedTask.submissionFileUrl)" target="_blank"
+                        class="d-flex align-items-center text-decoration-none attachment-pdf-link"
+                        :title="selectedTask.submissionFileUrl.split('/').pop()">
+                        <i class="bi bi-file-earmark-pdf fs-2 text-danger"></i>
+                        <span class="file-label ms-2 text-danger">{{ selectedTask.submissionFileUrl.split('/').pop()
+                        }}</span>
+                        <span class="badge bg-soft bg-danger bg-opacity-25 text-danger ms-2">PDF</span>
+                      </a>
+                    </template>
+                  </div>
+                  <div v-else class="no-file d-flex align-items-center gap-2 p-2 rounded-3 bg-light"
+                    style="min-width:120px;">
+                    <i class="bi bi-file-earmark-x fs-4 text-muted"></i>
+                    <span class="small text-muted">No File</span>
+                  </div>
+                </div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Remark (required if rejecting):</label>
+                <textarea v-model="adminRemark" class="form-control" :disabled="verifying"
+                  placeholder="Type any remarks for user here..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer border-0">
+            <button class="btn btn-success" :disabled="verifying" @click="handleVerifySubmission('verified')">
+              <span v-if="verifying" class="spinner-border spinner-border-sm me-1"></span>
+              <i v-else class="bi bi-check-circle"></i> Verify
+            </button>
+            <button class="btn btn-danger" :disabled="verifying" @click="handleVerifySubmission('rejected')">
+              <i class="bi bi-x-circle"></i> Reject
+            </button>
           </div>
         </div>
       </div>
@@ -140,6 +211,7 @@
             <option value="submitted">Submitted</option>
             <option value="verified">Done</option>
             <option value="cancelled">Cancelled</option>
+            <option value="rejected">Rejected</option>
             <option value="due">Expired</option>
           </select>
         </div>
@@ -215,8 +287,10 @@
                         task.status === 'verified' ? 'bg-success text-white' :
                           task.status === 'cancelled' ? 'bg-danger text-white' :
                             task.status === 'due' ? 'bg-dark text-white' :
-                              'bg-secondary text-white'
+                              task.status === 'rejected' ? 'bg-danger bg-opacity-10 text-danger border border-danger' :
+                                'bg-secondary text-white'
                 ]">
+
                   <i :class="{
                     'bi-hourglass-split': task.status === 'pending',
                     'bi-arrow-repeat': task.status === 'in_progress',
@@ -224,6 +298,7 @@
                     'bi-check-circle': task.status === 'verified',
                     'bi-x-circle': task.status === 'cancelled',
                     'bi-clock-exclamation': task.status === 'due',
+                    'bi-x-octagon': task.status === 'rejected',
                     'bi-question-circle': !task.status
                   }"></i>
                   {{
@@ -231,9 +306,10 @@
                       pending: 'Pending',
                       in_progress: 'Progress',
                       submitted: 'Submitted',
-                      verified: 'Done',
+                      verified: 'Verified',
                       cancelled: 'Cancelled',
-                      due: 'Expired'
+                      due: 'Expired',
+                      rejected: 'Rejected'
                     }[task.status] || 'Unknown'
                   }}
                 </span>
@@ -258,13 +334,18 @@
                 </div>
               </td>
               <td class="text-nowrap">
+                <button v-if="task.status === 'submitted'" @click="openVerifyModal(task)"
+                  class="btn btn-sm btn-outline-success me-1 d-flex align-items-center min-btn"
+                  title="Verify or Reject Submission">
+                  <i class="bi bi-eye"></i>
+                  <span class="ms-1">Review</span>
+                </button>
                 <span :title="task.status === 'cancelled' ? 'Cancelled task cannot be edited' : 'Edit Task'">
                   <button @click="handleTaskEdit(task)" class="btn btn-sm btn-outline-secondary me-1"
                     :disabled="task.status === 'cancelled'">
                     <i class="bi bi-pencil"></i>
                   </button>
                 </span>
-
                 <span :title="task.status === 'cancelled' ? 'Task already cancelled' : 'Cancel Task'">
                   <button @click="handleTaskCancel(task)" class="btn btn-sm btn-outline-danger"
                     :disabled="task.status === 'cancelled' || task.status === 'verified' || task.status === 'due'">
@@ -327,6 +408,10 @@ const perPage = ref(10);
 const createTaskModal = ref(null);
 const editingTask = ref(null);
 const expandedRows = ref([]);
+const selectedTask = ref(null);
+const adminRemark = ref("");
+const verifySubmissionModal = ref(null);
+const verifying = ref(false);
 
 const filters = reactive({
   search: '',
@@ -334,6 +419,44 @@ const filters = reactive({
   dateRange: '',
   assignedTo: []
 });
+
+const openVerifyModal = (task) => {
+  selectedTask.value = {
+    ...task,
+    submittedMarks: task.submissionNotes,
+    submittedFileUrl: task.submissionFileUrl || null,
+  };
+  adminRemark.value = task.remark || "";
+  showBootstrapModal(verifySubmissionModal);
+};
+
+const handleVerifySubmission = async (status) => {
+  if (verifying.value) return;
+
+  if (status === 'rejected' && !adminRemark.value.trim()) {
+    toast.error("Please add a remark when rejecting.");
+    return;
+  }
+  verifying.value = true;
+  const [data, error] = await request("put", `/tasks/${selectedTask.value._id}/admin-task-verify`, {
+    status,
+    remark: status === 'rejected' ? adminRemark.value.trim() : "",
+  });
+  verifying.value = false;
+  if (error) {
+    toast.error(error.message || "Could not update task status!");
+  } else {
+    toast.success(
+      status === "verified"
+        ? "Task marked as completed."
+        : "Task rejected with remark."
+    );
+    hideBootstrapModal(verifySubmissionModal);
+    await fetchTasks(currentPage.value);
+  }
+  selectedTask.value = null;
+  adminRemark.value = "";
+};
 
 const showDateRangePicker = () => {
   const today = new Date();
@@ -737,5 +860,65 @@ input[readonly] {
 .bg-submitted {
   background-color: #e0e7ff !important;
   color: #1d4ed8 !important;
+}
+
+.min-btn {
+  font-size: 0.78rem;
+  padding: 2px 8px !important;
+  margin-bottom: 5px;
+  line-height: 1.2;
+}
+
+.min-btn .bi {
+  font-size: 1em;
+}
+
+.min-btn span {
+  font-size: .96em;
+}
+
+.file-card {
+  transition: box-shadow 0.13s;
+  min-width: 140px;
+  padding: 6px 10px;
+}
+
+.file-card:hover {
+  box-shadow: 0 2px 14px 2px #26262615;
+  border-color: #0866ff2a;
+}
+
+.attachment-img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border: 1.5px solid #eee;
+  border-radius: 0.3rem;
+  background: #f7fafc;
+}
+
+.attachment-pdf-link:hover .file-label {
+  text-decoration: underline;
+}
+
+.file-label {
+  font-size: 0.93em;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.no-file {
+  font-size: 0.92em;
+  border: 1px dashed #dee2e6;
+  background: #f9fafb;
+}
+
+.bg-soft {
+  background: #fbe9eb !important;
 }
 </style>

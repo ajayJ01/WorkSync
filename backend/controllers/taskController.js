@@ -312,6 +312,49 @@ exports.cancelTask = async (req, reply) => {
   }
 };
 
+exports.adminTaskVerify = async (req, reply) => {
+  try {
+    const taskId = req.params.id;
+    const adminId = req.user.id;
+    const { status, remark } = req.body;
+
+    const task = await Task.findById(taskId);
+
+    if (!task) {
+      return notFound(reply, "Task not found");
+    }
+
+    // Only allow if task is in "submitted" (or similar) state
+    if (task.status !== "submitted") {
+      return reply.code(409).send({ message: `Cannot verify/reject a task in "${task.status}" state!` });
+    }
+
+    // VERIFY
+    if (status === "verified") {
+      task.status = "verified";
+      task.remark = ""; // remove previous remark (if any)
+      task.verifiedBy = adminId;
+      task.verifiedAt = new Date();
+    }
+    // REJECT
+    else if (status === "rejected") {
+      task.status = "rejected";
+      task.remark = remark?.trim() || "";
+      // Optionally: store adminId, rejectCount, etc.
+      task.rejectedBy = adminId;
+      task.rejectedAt = new Date();
+    }
+
+    task.updatedAt = new Date();
+    await task.save();
+
+    return success(reply, `Task marked as ${status}.`, task);
+  } catch (err) {
+    console.error("Admin Task Verify Error:", err);
+    return error(reply);
+  }
+};
+
 exports.startTask = async (req, reply) => {
   try {
     const taskId = req.params.id;
@@ -322,8 +365,8 @@ exports.startTask = async (req, reply) => {
       return notFound(reply, "Task not found");
     }
 
-    if (task.status !== "pending") {
-      return conflict(reply, "Only pending tasks can be started");
+    if (task.status !== "pending" && task.status !== "rejected") {
+      return conflict(reply, "Only pending or rejectedtasks can be started");
     }
 
     task.status = "in_progress";
@@ -380,7 +423,7 @@ exports.submitTask = async (req, reply) => {
       return notFound(reply, "Task not found");
     }
 
-    if (task.status !== "in_progress" && task.status !== "pending") {
+    if (task.status !== "in_progress" && task.status !== "rejected" &&  task.status !== "pending") {
       return conflict(reply, "Only in-progress and pending tasks can be submitted");
     }
 

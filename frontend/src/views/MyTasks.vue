@@ -38,6 +38,7 @@
                         <option value="submitted">Submitted</option>
                         <option value="verified">Done</option>
                         <option value="cancelled">Cancelled</option>
+                        <option value="rejected">Rejected</option>
                         <option value="due">Expired</option>
                     </select>
                 </div>
@@ -54,13 +55,13 @@
                 <table class="table align-middle text-nowrap table-sm">
                     <thead class="table-light">
                         <tr>
-                            <th>Sr.</th>
-                            <th>Title</th>
-                            <th>Description</th>
-                            <th>Due Date</th>
-                            <th>Status</th>
-                            <th>Attachment</th>
-                            <th>Action</th>
+                            <th style="width: 4%;">Sr.</th>
+                            <th style="width: 17%;">Title</th>
+                            <th style="width: 25%;">Description</th>
+                            <th style="width: 14%;">Due Date</th>
+                            <th style="width: 10%;">Status</th>
+                            <th style="width: 12%;">Attachment</th>
+                            <th style="width: 9%;">Action</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -78,8 +79,10 @@
                                                 task.status === 'verified' ? 'bg-success text-white' :
                                                     task.status === 'cancelled' ? 'bg-danger text-white' :
                                                         task.status === 'due' ? 'bg-dark text-white' :
-                                                            'bg-secondary text-white'
-                                ]">
+                                                            task.status === 'rejected' ? 'bg-danger bg-opacity-10 text-danger border border-danger' :
+                                                                'bg-secondary text-white'
+                                ]" :title="task.status === 'rejected' ? ('Reject Feedback : ' + (task.remark || 'No feedback provided')) : null"
+                                    style="cursor: default;">
                                     <i :class="{
                                         'bi-hourglass-split': task.status === 'pending',
                                         'bi-arrow-repeat': task.status === 'in_progress',
@@ -87,6 +90,7 @@
                                         'bi-check-circle': task.status === 'verified',
                                         'bi-x-circle': task.status === 'cancelled',
                                         'bi-clock-exclamation': task.status === 'due',
+                                        'bi-x-octagon': task.status === 'rejected',
                                         'bi-question-circle': !task.status
                                     }"></i>
                                     {{
@@ -94,11 +98,14 @@
                                             pending: 'Pending',
                                             in_progress: 'Progress',
                                             submitted: 'Submitted',
-                                            verified: 'Done',
+                                            verified: 'Verified',
                                             cancelled: 'Cancelled',
-                                            due: 'Expired'
-                                        }[task.status] || 'Unknown'
+                                    due: 'Expired',
+                                    rejected: 'Rejected'
+                                    }[task.status] || 'Unknown'
                                     }}
+                                    <i v-if="task.status === 'rejected' && task.remark"
+                                        class="bi bi-info-circle ms-1"></i>
                                 </span>
                             </td>
                             <td>
@@ -122,66 +129,62 @@
                             </td>
                             <td>
                                 <div class="d-flex gap-2 flex-wrap">
-
-                                    <!-- PENDING -->
-                                    <template v-if="task.status === 'pending'">
+                                    <!-- Rejected: Resubmit only -->
+                                    <template v-if="task.status === 'rejected'">
+                                        <button class="btn btn-sm btn-outline-primary" @click="openCompleteModal(task)"
+                                            title="Resubmit after admin feedback">
+                                            <i class="bi bi-arrow-repeat"></i>
+                                            <span class="ms-1 d-none d-md-inline">Resubmit</span>
+                                        </button>
+                                    </template>
+                                    <!-- Pending -->
+                                    <template v-else-if="task.status === 'pending'">
                                         <button class="btn btn-sm btn-outline-primary" @click="markTaskStarted(task)"
                                             title="Start this task">
                                             <i class="bi bi-play-fill"></i>
                                         </button>
-
                                         <button class="btn btn-sm btn-outline-success" @click="openCompleteModal(task)"
                                             title="Mark as completed">
                                             <i class="bi bi-check-lg"></i>
                                         </button>
                                     </template>
-
-                                    <!-- IN PROGRESS -->
+                                    <!-- In Progress -->
                                     <template v-else-if="task.status === 'in_progress'">
-                                        <span title="In progress Task">
-                                            <button class="btn btn-sm btn-outline-warning" disabled>
-                                                <i class="bi bi-hourglass-split"></i>
-                                            </button>
-                                        </span>
-
+                                        <button class="btn btn-sm btn-outline-warning" disabled
+                                            title="In progress Task">
+                                            <i class="bi bi-hourglass-split"></i>
+                                        </button>
                                         <button class="btn btn-sm btn-outline-success" @click="openCompleteModal(task)"
                                             title="Submit completed task">
                                             <i class="bi bi-check-lg"></i>
                                         </button>
                                     </template>
-
-                                    <!-- SUBMITTED -->
+                                    <!-- Submitted -->
                                     <template v-else-if="task.status === 'submitted'">
-                                        <span title="Waiting for admin verification">
-                                            <button class="btn btn-sm btn-outline-secondary" disabled>
-                                                <i class="bi bi-upload"></i>
-                                            </button>
-                                        </span>
+                                        <button class="btn btn-sm btn-outline-secondary" disabled
+                                            title="Waiting for admin verification">
+                                            <i class="bi bi-upload"></i>
+                                        </button>
                                     </template>
-
-                                    <!-- VERIFIED -->
+                                    <!-- Verified -->
                                     <template v-else-if="task.status === 'verified'">
-                                        <span title="Task is verified and done">
-                                            <button class="btn btn-sm btn-success" disabled>
-                                                <i class="bi bi-patch-check"></i>
-                                            </button>
-                                        </span>
+                                        <button class="btn btn-sm btn-success" disabled
+                                            title="Task is verified and done">
+                                            <i class="bi bi-patch-check"></i>
+                                        </button>
                                     </template>
-
-                                    <!-- CANCELLED / DUE -->
+                                    <!-- Cancelled / Due / Unknown -->
                                     <template v-else>
-                                        <span title="Task is no longer available">
-                                            <button class="btn btn-sm btn-outline-dark" disabled>
-                                                <i class="bi bi-x-circle"></i>
-                                            </button>
-                                        </span>
+                                        <button class="btn btn-sm btn-outline-dark" disabled
+                                            title="Task is no longer available">
+                                            <i class="bi bi-x-circle"></i>
+                                        </button>
                                     </template>
-
                                 </div>
                             </td>
                         </tr>
                         <tr v-if="tasks.length === 0">
-                            <td colspan="6" class="text-center text-muted py-4">No tasks found.</td>
+                            <td colspan="7" class="text-center text-muted py-4">No tasks found.</td>
                         </tr>
                     </tbody>
                 </table>
