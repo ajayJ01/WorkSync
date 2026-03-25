@@ -64,3 +64,19 @@ const MultipartTask = async (req, reply) => {
 
   return;
 };
+
+const AdminTaskVerify = async (req, reply, done) => {
+  const { status, remark } = req.body;
+
+  const allowed = ["verified", "rejected"];
+  if (!status || !allowed.includes(status)) {
+    return reply.code(400).send({ message: "Status must be 'verified' or 'rejected'" });
+  }
+
+  // If rejected, remark is required
+  if (status === "rejected" && (!remark || !remark.trim())) {
+    return reply.code(400).send({ message: "Remark required when rejecting a submission." });
+  }
+
+  done();
+};

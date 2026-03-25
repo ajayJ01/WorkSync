@@ -1,5 +1,5 @@
 const Task = require("../models/Task");
-const { success, error, notFound } = require("../utils/response");
+const { success, error, notFound, conflict } = require("../utils/response");
 const { uploadFile } = require("../utils/fileUpload");
 
 exports.createTask = async (req, reply) => {
@@ -12,11 +12,9 @@ exports.createTask = async (req, reply) => {
     const formData = {};
     let filePartData = null;
 
-    // Iterate and process all multipart parts (fields and files)
-    // This ensures all incoming stream data is consumed, preventing hangs.
+
     for await (const part of parts) {
       if (part.file && part.fieldname === "file") {
-        // Buffer the file stream to ensure full consumption
         const buffer = await part.toBuffer();
 
         filePartData = {
@@ -49,12 +47,11 @@ exports.createTask = async (req, reply) => {
     const assignedList = Array.isArray(assignedTo)
       ? assignedTo
       : assignedTo
-      ? [assignedTo]
-      : [];
+        ? [assignedTo]
+        : [];
 
     let fileUrl = null;
 
-    // Process file upload if a file was provided
     if (filePartData) {
       fileUrl = await uploadFile(filePartData, {
         folder: "uploads/tasks",
@@ -122,8 +119,8 @@ exports.updateTask = async (req, reply) => {
     const assignedList = Array.isArray(assignedTo)
       ? assignedTo
       : assignedTo
-      ? [assignedTo]
-      : [];
+        ? [assignedTo]
+        : [];
 
     let fileUrl = null;
     if (filePartData) {
@@ -312,5 +309,142 @@ exports.cancelTask = async (req, reply) => {
   } catch (err) {
     console.error("Cancel Task Error:", err);
     return error(reply);
+  }
+};
+
+exports.adminTaskVerify = async (req, reply) => {
+  try {
+    const taskId = req.params.id;
+    const adminId = req.user.id;
+    const { status, remark } = req.body;
+
+    const task = await Task.findById(taskId);
+
+    if (!task) {
+      return notFound(reply, "Task not found");
+    }
+
+    // Only allow if task is in "submitted" (or similar) state
+    if (task.status !== "submitted") {
+      return reply.code(409).send({ message: `Cannot verify/reject a task in "${task.status}" state!` });
+    }
+
+    // VERIFY
+    if (status === "verified") {
+      task.status = "verified";
+      task.remark = ""; // remove previous remark (if any)
+      task.verifiedBy = adminId;
+      task.verifiedAt = new Date();
+    }
+    // REJECT
+    else if (status === "rejected") {
+      task.status = "rejected";
+      task.remark = remark?.trim() || "";
+      // Optionally: store adminId, rejectCount, etc.
+      task.rejectedBy = adminId;
+      task.rejectedAt = new Date();
+    }
+
+    task.updatedAt = new Date();
+    await task.save();
+
+    return success(reply, `Task marked as ${status}.`, task);
+  } catch (err) {
+    console.error("Admin Task Verify Error:", err);
+    return error(reply);
+  }
+};
+
+exports.startTask = async (req, reply) => {
+  try {
+    const taskId = req.params.id;
+
+    const task = await Task.findOne({ _id: taskId });
+
+    if (!task) {
+      return notFound(reply, "Task not found");
+    }
+
+    if (task.status !== "pending" && task.status !== "rejected") {
+      return conflict(reply, "Only pending or rejectedtasks can be started");
+    }
+
+    task.status = "in_progress";
+    task.updatedAt = new Date();
+    await task.save();
+
+    return success(reply, "Task marked as in progress", task);
+  } catch (err) {
+    console.error("Start Task Error:", err);
+    return error(reply);
+  }
+};
+
+exports.submitTask = async (req, reply) => {
+  try {
+    if (!req.isMultipart()) {
+      return reply.status(400).send({ message: "Request is not multipart" });
+    }
+
+    const taskId = req.params.id;
+    const formData = {};
+    let filePartData = null;
+
+    const parts = req.parts();
+    for await (const part of parts) {
+      if (part.file && part.fieldname === "file") {
+        const buffer = await part.toBuffer();
+        filePartData = {
+          fieldname: part.fieldname,
+          filename: part.filename,
+          mimetype: part.mimetype,
+          encoding: part.encoding,
+          buffer: buffer,
+        };
+      } else if (part.type === "field") {
+        if (formData[part.fieldname]) {
+          if (Array.isArray(formData[part.fieldname])) {
+            formData[part.fieldname].push(part.value);
+          } else {
+            formData[part.fieldname] = [formData[part.fieldname], part.value];
+          }
+        } else {
+          formData[part.fieldname] = part.value;
+        }
+      } else if (part.file) {
+        await part.toBuffer();
+      }
+    }
+
+    const { notes } = formData;
+
+    const task = await Task.findById(taskId);
+    if (!task) {
+      return notFound(reply, "Task not found");
+    }
+
+    if (task.status !== "in_progress" && task.status !== "rejected" &&  task.status !== "pending") {
+      return conflict(reply, "Only in-progress and pending tasks can be submitted");
+    }
+
+    let submissionFileUrl = null;
+    if (filePartData) {
+      submissionFileUrl = await uploadFile(filePartData, {
+        folder: "uploads/tasks/completions",
+        allowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".webp"],
+        maxSizeMB: 5,
+      });
+    }
+
+    task.status = "submitted";
+    task.submissionNotes = notes;
+    task.submissionFileUrl = submissionFileUrl;
+    task.completedAt = new Date();
+    await task.save();
+
+    return success(reply, "Task submitted successfully", task);
+  } catch (err) {
+    console.error("🚨 submitTask error:", err);
+    return error(reply, "Failed to submit task", err.message);
   }
 };

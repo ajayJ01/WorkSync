@@ -17,7 +17,11 @@ async function authRoutes(fastify, options) {
     );
     protectedRoutes.get("/tasks", taskController.getAllTasks);
     protectedRoutes.get("/my-tasks", taskController.getMyTasks);
+    protectedRoutes.post("/my-tasks/:id/start", taskController.startTask);
+    protectedRoutes.post("/my-tasks/:id/submit", taskController.submitTask);
     protectedRoutes.put("/tasks/:id/cancel", taskController.cancelTask);
+    protectedRoutes.put("/tasks/:id/admin-task-verify", { preHandler: taskValidation.AdminTaskVerify }, taskController.adminTaskVerify);
+
   });
 }
 
