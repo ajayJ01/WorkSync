@@ -1,6 +1,7 @@
 const taskController = require("../controllers/taskController.js");
 const taskValidation = require("../validations/taskValidations.js");
 const authenticate = require("../middlewares/authMiddleware");
+const aiController = require("../controllers/aiController");
 
 async function authRoutes(fastify, options) {
   fastify.register(async function (protectedRoutes) {
@@ -21,7 +22,9 @@ async function authRoutes(fastify, options) {
     protectedRoutes.post("/my-tasks/:id/submit", taskController.submitTask);
     protectedRoutes.put("/tasks/:id/cancel", taskController.cancelTask);
     protectedRoutes.put("/tasks/:id/admin-task-verify", { preHandler: taskValidation.AdminTaskVerify }, taskController.adminTaskVerify);
-
+    
+    protectedRoutes.post("/ai/command", aiController.handleAI);
+    protectedRoutes.post("/ai/confirm", aiController.confirmAction);
   });
 }
 

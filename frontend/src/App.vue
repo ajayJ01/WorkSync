@@ -1,8 +1,13 @@
 <template>
   <router-view />
+   <ChatBot v-if="!route.meta.hideChatbot" />
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
+import ChatBot from "@/components/ChatBot.vue";
+
+const route = useRoute()
 </script>
 
 <style scoped>  

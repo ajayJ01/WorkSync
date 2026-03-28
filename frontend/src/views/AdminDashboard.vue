@@ -62,6 +62,7 @@
 import { useRouter } from "vue-router";
 import { ref, onMounted } from "vue";
 import { useToast } from "@/composables/useToast";
+import { clearChatStorageForCurrentUser } from "@/utils/chatStorage";
 const toast = useToast();
 
 const userName = ref("");
@@ -89,11 +90,25 @@ onMounted(() => {
   }
 });
 
-const logout = () => {
-  localStorage.removeItem("token");
-  localStorage.removeItem("role");
-  localStorage.setItem("logout", "Logged Out Successfully");
-  router.push("/login");
+const logout = async () => {
+    try {
+        const token = localStorage.getItem("token");
+        
+        await axios.post("/logout", {}, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+    } catch (err) {
+        console.error("Logout API error:", err);
+    } finally {
+        clearChatStorageForCurrentUser();
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        localStorage.removeItem("userName");
+        localStorage.setItem("logout", "Logged Out Successfully");
+        router.push("/login");
+    }
 };
 </script>
 

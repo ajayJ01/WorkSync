@@ -7,10 +7,12 @@ import AdminDashboard from '../views/AdminDashboard.vue'
 import UserDashboard from '../views/UserDashboard.vue'
 import TaskList from '../views/TaskList.vue'
 import MyTasks from '../views/MyTasks.vue'
+import { clearChatStorageForCurrentUser } from '../utils/chatStorage'
 
 const routes = [
   { path: '/', redirect: '/login' },
-  { path: '/login', component: Login },
+  { path: '/login', component: Login , meta: { hideChatbot: true } },
+  
   {
     path: '/dashboard',
     meta: { requiresAuth: true },
@@ -36,7 +38,7 @@ const routes = [
   {
     path: '/user/create',
     component: AdminDashboard,
-    meta: { requiresAuth: true, requiresAdmin: true },
+    meta: { requiresAuth: true, requiresAdmin: true, meta: { hideChatbot: true } },
     children: [
       {
         path: '',
@@ -69,12 +71,14 @@ router.beforeEach((to, from, next) => {
 
     if (decoded.exp < currentTime) {
       // Token expired
+      clearChatStorageForCurrentUser()
       localStorage.removeItem('token')
       localStorage.removeItem('role')
       return next({ path: '/login', query: { reason: 'expired' } })
     }
   } catch (error) {
     // Token invalid
+    clearChatStorageForCurrentUser()
     localStorage.removeItem('token')
     localStorage.removeItem('role')
     return next({ path: '/login', query: { reason: 'invalid' } })
