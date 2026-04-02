@@ -16,6 +16,12 @@ async function initNLU() {
   manager.addDocument('en', 'mere task kya hai', 'getTasks');
   manager.addDocument('en', 'fetch tasks', 'getTasks');
   manager.addDocument('en', 'pending kya hai', 'getTasks');
+  manager.addDocument('en', 'cancelled tasks dikhao', 'getTasks');
+  manager.addDocument('en', 'canceled tasks show', 'getTasks');
+  manager.addDocument('en', 'cancelled task bta', 'getTasks');
+  manager.addDocument('en', 'cancelled task batao', 'getTasks');
+  manager.addDocument('en', 'pending task bta', 'getTasks');
+  manager.addDocument('en', 'verified tasks list', 'getTasks');
 
   // 2. createSimpleTask
   manager.addDocument('en', 'create a task', 'createSimpleTask');
@@ -53,8 +59,11 @@ async function initNLU() {
   manager.addDocument('en', 'chalu kardo', 'startTask');
   manager.addDocument('en', 'isko shuru karo', 'startTask');
 
-  // 7. cancelTask
-  manager.addDocument('en', 'cancel task', 'cancelTask');
+  // 7. cancelTask (imperative — not "cancelled tasks show")
+  manager.addDocument('en', 'cancel this task', 'cancelTask');
+  manager.addDocument('en', 'cancel the task', 'cancelTask');
+  manager.addDocument('en', 'isko cancel karo', 'cancelTask');
+  manager.addDocument('en', 'task cancel kardo', 'cancelTask');
   manager.addDocument('en', 'band kardo', 'cancelTask');
   manager.addDocument('en', 'khatam karo isko', 'cancelTask');
   manager.addDocument('en', 'stop the task', 'cancelTask');

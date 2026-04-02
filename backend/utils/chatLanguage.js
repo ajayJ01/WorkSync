@@ -1,15 +1,52 @@
 function detectChatLanguage(text) {
-  const s = String(text || "");
-  if (/[\u0900-\u097F]/.test(s)) return "hi";
+  const s = String(text || "").trim();
+  if (!s) return "en";
+
+  const totalChars = s.length;
+  const devanagariChars = (s.match(/[\u0900-\u097F]/g) || []).length;
+  const latinChars = (s.match(/[a-z]/gi) || []).length;
+  const devanagariRatio = totalChars ? devanagariChars / totalChars : 0;
+
+  // Strong Hindi signal: mostly Devanagari script.
+  if (devanagariRatio >= 0.25 && devanagariChars >= 2) return "hi";
 
   const lower = s.toLowerCase();
-  const hasEnglishLetters = /[a-z]/i.test(lower);
-  const hinglishHints =
-    /\b(kya|kaise|kese|mera|meri|tum|aap|hai|hain|kar|karo|kr|dikhao|batao|kitne|kaun|kyun|banao|banado|ek|naya|kal|aaj|mujhe|dekho|lao|hua|hui|kab|kaha|kidhar|kisko|namaste|pranam)\b/i.test(
-      lower
-    );
+  const tokens = lower.split(/[^a-z\u0900-\u097f]+/i).filter(Boolean);
+  if (!tokens.length) return "en";
 
-  if (hasEnglishLetters && hinglishHints) return "hinglish";
+  // Roman-Hindi (Hinglish) cues.
+  const hinglishLexicon = new Set([
+    "kya", "kaise", "kese", "mera", "meri", "mere", "tum", "aap", "hai", "hain", "kar",
+    "karo", "kr", "dikhao", "batao", "kitne", "kaun", "kyun", "banao", "banado", "ek",
+    "naya", "kal", "aaj", "mujhe", "dekho", "lao", "hua", "hui", "kab", "kaha", "kidhar",
+    "kisko", "namaste", "pranam", "nhi", "nahi", "haan", "acha", "accha", "theek", "thik",
+    "apna", "apni", "ka", "ki", "ke", "pas", "paas", "sab", "saare", "jiska", "jinki",
+  ]);
+
+  // Common English conversational cues.
+  const englishLexicon = new Set([
+    "the", "is", "are", "what", "why", "how", "when", "where", "who", "can", "could",
+    "should", "would", "please", "show", "list", "update", "create", "task", "tasks",
+    "status", "today", "tomorrow", "yesterday", "my", "your", "you", "me", "we", "they",
+  ]);
+
+  let hinglishScore = 0;
+  let englishScore = 0;
+  for (const t of tokens) {
+    if (hinglishLexicon.has(t)) hinglishScore += 1;
+    if (englishLexicon.has(t)) englishScore += 1;
+  }
+
+  // Mixed script/text tends to be Hinglish in this product context.
+  if (devanagariChars > 0 && latinChars > 0) return "hinglish";
+
+  // Roman text with strong Hindi cues.
+  if (latinChars > 0 && hinglishScore >= 1 && englishScore >= 1) return "hinglish";
+  if (latinChars > 0 && hinglishScore >= 2) return "hinglish";
+
+  // Short and noisy chat usually works better with Hinglish copy.
+  if (tokens.length <= 3 && hinglishScore >= 1) return "hinglish";
+
   return "en";
 }
 

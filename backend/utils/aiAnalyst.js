@@ -6,6 +6,7 @@ const { setFocusedAssignee } = require("./chatEntityContext");
 const { isAiUnavailable, markAiUnavailable } = require("./aiAvailability");
 const { aiBusyMessage, safeErrorMessage } = require("./chatUserMessages");
 const { detectChatLanguage, pickByLanguage } = require("./chatLanguage");
+const { escapeRegex } = require("./regexSafe");
 
 const chatHistories = {};
 
@@ -206,13 +207,15 @@ async function askAnalyst(userInput, role, userId) {
         const wantsRoleUser = /\buser\b/i.test(String(userInput || ""));
         const wantsRoleAdmin = /\badmin\b/i.test(String(userInput || ""));
         if (q.includes("@")) {
-          users = await User.find({ email: { $regex: `^${q}$`, $options: "i" } })
+          users = await User.find({
+            email: { $regex: `^${escapeRegex(q)}$`, $options: "i" },
+          })
             .select("_id name email role")
             .lean();
         } else {
           const tokens = q.split(/\s+/).filter(Boolean);
-          const tokenRegex = tokens.map((t) => `(?=.*${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`).join("");
-          const safePattern = tokenRegex ? `${tokenRegex}.*` : q;
+          const tokenRegex = tokens.map((t) => `(?=.*${escapeRegex(t)})`).join("");
+          const safePattern = tokenRegex ? `${tokenRegex}.*` : escapeRegex(q);
           users = await User.find({ name: { $regex: safePattern, $options: "i" } })
             .select("_id name email role")
             .lean();

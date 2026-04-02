@@ -4,6 +4,7 @@ const User = require("../models/User");
 const { success } = require("./response");
 const { parseDueDateFromText } = require("./parseDueDate");
 const { uploadFile } = require("./fileUpload");
+const { escapeRegex } = require("./regexSafe");
 
 const AI_TASKS_PAGE_LIMIT = Math.min(
   parseInt(process.env.AI_CHAT_TASKS_LIMIT, 10) || 200,
@@ -12,6 +13,7 @@ const AI_TASKS_PAGE_LIMIT = Math.min(
 
 function applyAiListQuery(req, input) {
   req.query = { ...(req.query || {}), page: 1, limit: String(AI_TASKS_PAGE_LIMIT) };
+  if (input?.search) req.query.search = String(input.search);
   if (input?.status) req.query.status = input.status;
   if (input?.statusIn) req.query.statusIn = input.statusIn;
   if (input?.from) req.query.from = input.from;
@@ -199,7 +201,7 @@ async function executeTool(tool, input, req, reply) {
           const sameTitle = await Task.find({
             $and: [
               visibility,
-              { title: { $regex: taskTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
+              { title: { $regex: escapeRegex(taskTitle), $options: "i" } },
             ],
           })
             .select("_id status")
@@ -238,11 +240,15 @@ async function executeTool(tool, input, req, reply) {
       for (const iq of queries) {
         let matches = [];
         if (iq.includes("@")) {
-          matches = await User.find({ email: { $regex: `^${iq}$`, $options: "i" } })
+          matches = await User.find({
+            email: { $regex: `^${escapeRegex(iq)}$`, $options: "i" },
+          })
             .select("_id name email role")
             .lean();
         } else {
-          matches = await User.find({ name: { $regex: iq, $options: "i" } })
+          matches = await User.find({
+            name: { $regex: escapeRegex(iq), $options: "i" },
+          })
             .select("_id name email role")
             .lean();
         }

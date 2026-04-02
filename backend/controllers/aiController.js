@@ -7,7 +7,7 @@ const User = require("../models/User");
 const { isAllowed, requiresConfirmation, isForbiddenIntent } = require("../utils/guard");
 const { askAnalyst } = require("../utils/aiAnalyst");
 const { replyIfUnsupportedChatAction } = require("../utils/chatUnsupportedIntents");
-const { setChatTaskContext } = require("../utils/chatTaskContext");
+const { setChatTaskContext, peekChatTaskContext } = require("../utils/chatTaskContext");
 const {
   mergeAiToolInput,
   finalizeUpdateDueDateInput,
@@ -31,11 +31,15 @@ const {
 } = require("../utils/chatUserMessages");
 const { detectChatLanguage, pickByLanguage } = require("../utils/chatLanguage");
 const { isWebsiteInfoQuery, getWebsiteInfoReply } = require("../utils/siteKnowledge");
+const { evaluateRoutingPolicy } = require("../utils/chatRoutingPolicy");
+const { deriveConversationState } = require("../utils/chatStateMachine");
+const { normalizeChatText } = require("../utils/textNormalizer");
+const { extractTitleHintVariants } = require("../utils/chatTitleHint");
+const { findTaskByTitle, findMultipleTasksByTitles } = require("../utils/smartTaskFinder");
+const { escapeRegex, escapeRegexTruncated } = require("../utils/regexSafe");
 const axios = require("axios");
 
-// ─────────────────────────────────────────────
-// Intent classify — action ya analytical?
-// ─────────────────────────────────────────────
+// 🔄 Fallback when Groq / AI path is unavailable (used by classifyIntent below)
 function classifyIntentHeuristic(text) {
   const lower = (text || "").toLowerCase();
   if (/\b(how many|kitne|कितने)\b/i.test(lower)) return true;
@@ -47,11 +51,38 @@ function classifyIntentHeuristic(text) {
 
 function isUserTaskCountQuery(text) {
   const lower = String(text || "").toLowerCase();
+  const asksAllUsers = /\b(saare\s*user|sare\s*user|sab\s*user|all\s*users?)\b/i.test(lower);
+  if (asksAllUsers) return true;
   const asksCount = /(kitne|how many|count|total)/i.test(lower);
   const hasTaskWord = /(task|tasks|assigned tasks|kaam)/i.test(lower);
   const hasPersonRef =
-    /(k\s*pass|k\s*paas|ke\s*pass|ke\s*paas|ka|ki|mera|meri|my|apna|apni|khud|own)/i.test(lower);
+    /(k\s*pass|k\s*paas|ke\s*pass|ke\s*paas|mera|meri|my|apna|apni|khud|own|\buser\b|@)/i.test(lower);
   return asksCount && hasTaskWord && hasPersonRef;
+}
+
+function hasPersonScopeInQuery(text) {
+  const lower = String(text || "").toLowerCase();
+  return /(k\s*pass|k\s*paas|ke\s*pass|ke\s*paas|mera|meri|my|apna|apni|khud|own|user\s+\w+|@)/i.test(lower);
+}
+
+function extractStatusForCountQuery(text) {
+  const lower = String(text || "").toLowerCase();
+  if (/\bpending|pend\b/i.test(lower)) return "pending";
+  if (/\b(in[\s_]?progress|progress)\b/i.test(lower)) return "in_progress";
+  if (/\bverified\b/i.test(lower)) return "verified";
+  if (/\bcancelled?\b/i.test(lower)) return "cancelled";
+  if (/\bsubmitted?\b/i.test(lower)) return "submitted";
+  if (/\brejected?\b/i.test(lower)) return "rejected";
+  if (/\bdue|overdue|expired\b/i.test(lower)) return "due";
+  return null;
+}
+
+function isGlobalTaskCountQuery(text) {
+  const lower = String(text || "").toLowerCase();
+  const asksCount = /\b(kitne|how many|count|total)\b/i.test(lower);
+  const hasTaskWord = /\b(task|tasks|kaam)\b/i.test(lower);
+  if (!asksCount || !hasTaskWord) return false;
+  return !hasPersonScopeInQuery(lower);
 }
 
 function isIdentityQuery(text) {
@@ -67,7 +98,8 @@ function isSmallTalk(text) {
   const lower = String(text || "").toLowerCase().trim();
   return (
     /^(hi|hii|hello|hey|heyy|hlo|hola|namaste|ram ram)\b/.test(lower) ||
-    /\b(how are you|how r u|kese ho|kaise ho|kaisa hai|kya haal|kya hal|whats up|what's up)\b/.test(lower)
+    /\b(how are you|how r u|kese ho|kaise ho|kaisa hai|kya haal|kya hal|whats up|what's up)\b/.test(lower) ||
+    /^(acha|achaa|accha|ok|okay|theek|theek hai|thik|thik hai)\b/.test(lower)
   );
 }
 
@@ -110,8 +142,25 @@ function isUnsafeOrAdultOffTopic(text) {
 
 function hasTaskDomainSignal(text) {
   const lower = String(text || "").toLowerCase();
-  return /(task|tasks|due|deadline|pending|assigned|assign|start|cancel|verify|submit|dashboard|role|user|admin|my tasks|meri tasks|login|logout)/i.test(
+  return /(task|tasks|due|deadline|pending|assigned|assign|start|cancel|verify|submit|dashboard|role|user|admin|my tasks|meri tasks|login|logout|delete|remove|hata|mita)/i.test(
     lower
+  );
+}
+
+/** List ke aakhiri (neeche) item ko delete/remove/cancel — chat context IDs se. Plain "last" avoid (last pending ≠ list position). */
+function wantsLastListedTaskRemove(text) {
+  const lower = String(text || "").toLowerCase();
+  const refersListEnd =
+    /\b(last\s*wale?|last\s*wali|akhiri|akheer|antim|sabse\s*(niche|neeche))\b/i.test(lower) ||
+    /\b(neeche|niche)\s*wala\b/i.test(lower) ||
+    /\blast\s+(ek|1|one)(\s+task)?\b/i.test(lower) ||
+    /\blast\s+\d+\s+task\b/i.test(lower) ||
+    /\blast\s+task\b/i.test(lower) ||
+    /\b(ek|1)\s+last\s+task\b/i.test(lower);
+  if (!refersListEnd) return false;
+  return (
+    /\b(delete|delet|remove|hata|hatao|mita|mitao|mitha|trash|khatam)\b/i.test(lower) ||
+    /\bcancel\b/i.test(lower)
   );
 }
 
@@ -119,15 +168,17 @@ function isUserAssignedListQuery(text) {
   const lower = String(text || "").toLowerCase();
   const hasListVerb = /(dikho|dikhao|dikha|show|list|fetch|dekho|lao)/i.test(lower);
   const hasTaskWord = /(task|tasks|assigned task|assigned tasks|kaam)/i.test(lower);
-  const hasPersonRef = /(k\s*pass|k\s*paas|ke\s*pass|ke\s*paas|ka|ki|mera|meri|my|khud|own)/i.test(lower);
+  const hasPersonRef = /(k\s*pass|k\s*paas|ke\s*pass|ke\s*paas|mera|meri|my|khud|own|\buser\b|@)/i.test(lower);
   return hasListVerb && hasTaskWord && hasPersonRef;
 }
 
 function isFileUpdatePhrase(text) {
   const lower = String(text || "").toLowerCase();
-  return (
-    /(file|attachment|attach|document|pdf|image|screenshot|upload)/i.test(lower) &&
-    /(update|replace|change|badal|badlo)/i.test(lower)
+  const hasFile =
+    /(file|attachment|attach|attached|document|pdf|image|screenshot|upload)/i.test(lower);
+  if (!hasFile) return false;
+  return /(update|replace|change|badal|badlo|attach|upload|lagao|laga|dal\s*do|daal|jo\s+attached)/i.test(
+    lower
   );
 }
 
@@ -148,23 +199,7 @@ function extractUserQueryFromText(text) {
 }
 
 function normalizeUserText(text) {
-  let s = String(text || "");
-  const rules = [
-    [/\bsubmited\b/gi, "submitted"],
-    [/\bsubmittted\b/gi, "submitted"],
-    [/\bcancled\b/gi, "cancelled"],
-    [/\bcancelld\b/gi, "cancelled"],
-    [/\brejeted\b/gi, "rejected"],
-    [/\brejacted\b/gi, "rejected"],
-    [/\bverfied\b/gi, "verified"],
-    [/\battanched\b/gi, "attached"],
-    [/\baprail\b/gi, "april"],
-    [/\btommorow\b/gi, "tomorrow"],
-    [/\bhaiu\b/gi, "hai"],
-    [/\bjisa\b/gi, "jiska"],
-  ];
-  for (const [re, v] of rules) s = s.replace(re, v);
-  return s;
+  return normalizeChatText(text);
 }
 
 /** Groq kabhi-kabhi "pending tasks cancel" ko analytical samajh leta hai — analyst phir galat salah deta hai */
@@ -203,29 +238,86 @@ function mustUseActionPath(text) {
   return false;
 }
 
+/** User wants a list (not mutate): bta/batao, dikhao, export/download, kitne... */
+const TASK_LIST_VERB_RE =
+  /\b(bta|btao|batao|batado|batana|dikhao|dikha|dikha do|show|list|fetch|dekho|lao|kitne|how many|count|total|export|download)\b/i;
+
 function hasTaskListIntent(text) {
   const lower = String(text || "").toLowerCase();
-  return (
-    /(task|tasks|task list)/i.test(lower) &&
-    /(dikhao|dikha|show|list|fetch|dekho|lao)/i.test(lower)
-  );
+  return /(task|tasks|task list)/i.test(lower) && TASK_LIST_VERB_RE.test(lower);
+}
+
+/**
+ * "cancelled/canceled task bta" = list filter, NOT cancelTask mutation.
+ */
+function isStatusFilteredListQuery(text) {
+  const lower = String(text || "").toLowerCase();
+  if (!/\b(tasks?|kaam)\b/i.test(lower)) return false;
+  if (!TASK_LIST_VERB_RE.test(lower)) return false;
+  if (/\b(cancelled|canceled)\b/i.test(lower)) return true;
+  if (/\b(pending|verified|rejected|submitted)\b/i.test(lower)) return true;
+  if (/\b(in[\s_]?progress|processing)\b/i.test(lower)) return true;
+  if (/\b(due|overdue|expired)\b/i.test(lower) && !/\b(update|change|badal|extend)\b/i.test(lower)) return true;
+  return false;
+}
+
+function extractSearchKeywordFromText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+
+  const cleanKeyword = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .replace(/\b(aata|aate|aayi|aata hai|hai|ho|h|wo|wale|wala|wahi|please)\b/gi, " ")
+      .replace(/[^\w\s-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+
+  const quoted =
+    raw.match(/\b(?:keyword|search|find|filter)\b[^"'`]*["'`](.+?)["'`]/i) ||
+    raw.match(/\b(?:jisme|jinme|jismein|jinmein)\b[^"'`]*["'`](.+?)["'`]\s*(?:keyword)?/i);
+  if (quoted?.[1]) return cleanKeyword(quoted[1]);
+
+  const scoped =
+    raw.match(/\b(?:jisme|jinme|jismein|jinmein)\s+(.+?)\s+keyword\b/i) ||
+    raw.match(/\bwith\s+(.+?)\s+keyword\b/i);
+  if (scoped?.[1]) {
+    const cleanedScoped = cleanKeyword(scoped[1]);
+    if (cleanedScoped) return cleanedScoped;
+  }
+
+  const beforeKeyword =
+    raw.match(/\b([a-zA-Z0-9_-]{2,})\s+keyword\b/i) ||
+    raw.match(/\bkeyword\s+([a-zA-Z0-9_-]{2,})\b/i);
+  if (beforeKeyword?.[1]) {
+    const k = cleanKeyword(beforeKeyword[1]);
+    if (k) return k;
+  }
+
+  const m =
+    raw.match(/\b(?:keyword|search|find|filter)\s+([a-zA-Z0-9 _-]{2,})$/i) ||
+    raw.match(/\b(?:jisme|jinme|jismein|jinmein)\s+([a-zA-Z0-9 _-]{2,})\s+(?:keyword|aata|aate|hai|ho)\b/i);
+  return cleanKeyword(m?.[1] || "");
+}
+
+function hasKeywordSearchIntent(text) {
+  const lower = String(text || "").toLowerCase();
+  const hasKeywordTerm = /\b(keyword|search|find|filter|jisme|jinme|jismein|jinmein)\b/i.test(lower);
+  const hasTaskTerm = /(task|tasks|task list)\b/i.test(lower);
+  if (hasKeywordTerm && hasTaskTerm) return true;
+  if (hasKeywordTerm && extractSearchKeywordFromText(lower)) return true;
+  return false;
 }
 
 function isGenericListOnly(text) {
   const lower = String(text || "").toLowerCase().trim();
-  const asksList = /\b(list|dikhao|dikha|show|fetch|dekho|lao)\b/i.test(lower);
+  const asksList = TASK_LIST_VERB_RE.test(lower);
   const hasTaskWord = /\b(task|tasks|task list)\b/i.test(lower);
   const hasSpecificFilter = /\b(cancelled|rejected|verified|submitted|pending|due|today|aaj|kal|tomorrow|assign|title|status)\b/i.test(
     lower
   );
   return asksList && (!hasTaskWord || hasTaskWord) && !hasSpecificFilter;
-}
-
-function shouldUseQuickIntent(text) {
-  const lower = String(text || "").toLowerCase();
-  // NLP.js handles all text heuristics now. QuickIntent is ONLY for fast 24-char ObjectID parsing.
-  if (/\b[a-f\d]{24}\b/i.test(lower)) return true;
-  return false;
 }
 
 function extractQuickCreateInput(text) {
@@ -266,8 +358,9 @@ function extractQuickCreateInput(text) {
 function inferListFiltersFromText(text) {
   const raw = String(text || "");
   const lower = raw.toLowerCase();
+  const searchKeyword = extractSearchKeywordFromText(raw);
   const statusMap = [
-    { re: /\bcancelled?\b/i, status: "cancelled" },
+    { re: /\b(cancelled?|canceled)\b/i, status: "cancelled" },
     { re: /\brejected?\b/i, status: "rejected" },
     { re: /\bverified?\b/i, status: "verified" },
     { re: /\b(submitted?|submited|submittted|submit(ed)?)\b/i, status: "submitted" },
@@ -277,19 +370,18 @@ function inferListFiltersFromText(text) {
   ];
   const statusHit = statusMap.find((x) => x.re.test(lower));
 
-  const asksList =
-    /(task|tasks|task list)/i.test(lower) &&
-    /(dikhao|dikha|show|list|fetch|dekho|batao|btao|lao)/i.test(lower);
-
-  // Generic status listing: "cancelled task dikhao", "rejected task dikhao"
-  if (asksList && statusHit) {
-    return { status: statusHit.status };
-  }
+  const asksList = /(task|tasks|task list)/i.test(lower) && TASK_LIST_VERB_RE.test(lower);
 
   const wantsDueList =
     /(due|deadline|due date)/i.test(lower) &&
-    /(task|tasks|dikhao|show|list|dekho|btao|batao)/i.test(lower);
-  if (!wantsDueList) return {};
+    /(task|tasks|dikhao|show|list|dekho|btao|batao|bta|kitne|count|export|download)/i.test(lower);
+  // If not a due-date style list, apply generic status listing.
+  if (!wantsDueList) {
+    if (asksList && statusHit) {
+      return { ...(searchKeyword ? { search: searchKeyword } : {}), status: statusHit.status };
+    }
+    return searchKeyword ? { search: searchKeyword } : {};
+  }
 
   const out = {};
   out.statusIn = "pending,in_progress,submitted,due";
@@ -336,11 +428,44 @@ function inferListFiltersFromText(text) {
     return out;
   }
 
+  // "due tasks dikhao" without explicit date still maps to due-like statuses.
+  if (searchKeyword) out.search = searchKeyword;
   return out;
 }
 
 function looksLikeCancelDraft(text) {
   return /^\s*(cancel|chhodo|rehne do|mat karo|stop|abort|nahi|nhi)\s*$/i.test(String(text || ""));
+}
+
+function extractCandidateSelectionIndex(text) {
+  const lower = String(text || "").toLowerCase().trim();
+  if (!lower) return null;
+  const numeric = lower.match(/\b(\d{1,2})\s*(?:number|num|no|option)?\b/);
+  if (numeric) {
+    const n = parseInt(numeric[1], 10);
+    if (!isNaN(n) && n > 0) return n - 1;
+  }
+  if (/\b(first|1st|fist|pehla|pehle)\b/i.test(lower)) return 0;
+  if (/\b(second|2nd|dusra|doosra)\b/i.test(lower)) return 1;
+  if (/\b(third|3rd|teesra)\b/i.test(lower)) return 2;
+  return null;
+}
+
+function isStatusFilterFollowup(text) {
+  const lower = String(text || "").toLowerCase();
+  const hasStatus = /\b(pending|in[\s_]?progress|progress|processing|prosesing|verified|cancelled|submitted|rejected|due|expired)\b/i.test(lower);
+  const hasFilterCue = /\b(filter|lagao|lgao|dikhao|show|list)\b/i.test(lower);
+  return hasStatus && hasFilterCue;
+}
+
+function inferStatusActionTool(text) {
+  const lower = String(text || "").toLowerCase();
+  if (isFileUpdatePhrase(text)) return null;
+  if (!/\bstatus\b/i.test(lower)) return null;
+  if (/\b(processing|prosesing|in[\s_]?progress|start(?:ed)?)\b/i.test(lower)) return "startTask";
+  if (/\b(cancelled?|cancel)\b/i.test(lower)) return "cancelTask";
+  if (/\b(verified?|approve|approved)\b/i.test(lower)) return "verifyTask";
+  return null;
 }
 
 function extractAssignInput(text) {
@@ -396,25 +521,6 @@ function isValidObjectId(id) {
   return /^[a-f\d]{24}$/i.test(String(id || ""));
 }
 
-function extractTitleHint(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return "";
-  const quoted =
-    raw.match(/\btitle\b[^"'`]*["'`](.+?)["'`]/i) ||
-    raw.match(/\bjiska\s+title\b[^"'`]*["'`](.+?)["'`]/i) ||
-    raw.match(/\bdescription\b[^"'`]*["'`](.+?)["'`]/i) ||
-    raw.match(/\bjiska\s+description\b[^"'`]*["'`](.+?)["'`]/i);
-  if (quoted?.[1]) return quoted[1].trim();
-
-  const m =
-    raw.match(/\bjiska\s+(?:title|description)\s+(.+?)\s+hai\b/i) ||
-    raw.match(/\b(?:title|description)\s+(.+?)\s+hai\b/i) ||
-    raw.match(/\b(?:title|description)\s+(.+?)\s+(?:usme|usko|update|change|badal|kr|kro|karo)\b/i) ||
-    raw.match(/\btask\s+(.+?)\s+(?:ko|ka|ki)\b/i);
-  const title = m?.[1]?.trim() || "";
-  return title.replace(/^["'`]|["'`]$/g, "").trim();
-}
-
 function hasYearInText(text) {
   return /\b(19|20)\d{2}\b/.test(String(text || ""));
 }
@@ -467,56 +573,70 @@ async function resolveTaskIdForAssignFromText(userId, text) {
   return null;
 }
 
-async function resolveTaskIdFromText(userId, text) {
+async function resolveTaskIdFromText(userId, text, rawText = null) {
   const oid = String(text || "").match(/\b[a-f\d]{24}\b/i);
   if (oid?.[0]) return oid[0];
 
   const byDue = await resolveTaskIdForAssignFromText(userId, text);
   if (byDue) return byDue;
 
-  const titleHint = extractTitleHint(text);
-  if (!titleHint) return null;
+  const variants = extractTitleHintVariants(text, rawText);
+  const escs = variants.map((h) => escapeRegexTruncated(h)).filter(Boolean);
+  if (!escs.length) return null;
+
+  const orCond = escs.flatMap((esc) => [
+    { title: { $regex: esc, $options: "i" } },
+    { description: { $regex: esc, $options: "i" } },
+  ]);
 
   const list = await Task.find({
-    $and: [
-      { $or: [{ createdBy: userId }, { assignedTo: userId }] },
-      {
-        $or: [
-          { title: { $regex: titleHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-          { description: { $regex: titleHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-        ],
-      },
-    ],
+    $and: [{ $or: [{ createdBy: userId }, { assignedTo: userId }] }, { $or: orCond }],
   })
     .select("_id status")
     .lean();
-  if (list.length === 1) return String(list[0]._id);
-  if (list.length > 1) {
-    const active = list.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+  const dedup = [];
+  const seen = new Set();
+  for (const t of list) {
+    const id = String(t._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    dedup.push(t);
+  }
+  if (dedup.length === 1) return String(dedup[0]._id);
+  if (dedup.length > 1) {
+    const active = dedup.filter((t) => t.status !== "cancelled" && t.status !== "verified");
     if (active.length === 1) return String(active[0]._id);
   }
   return null;
 }
 
-async function suggestTaskChoicesFromTitle(userId, text, limit = 3) {
-  const titleHint = extractTitleHint(text);
-  if (!titleHint) return [];
+async function suggestTaskChoicesFromTitle(userId, text, limit = 3, rawText = null) {
+  const variants = extractTitleHintVariants(text, rawText);
+  const escs = variants.map((h) => escapeRegexTruncated(h)).filter(Boolean);
+  if (!escs.length) return [];
+
+  const orCond = escs.flatMap((esc) => [
+    { title: { $regex: esc, $options: "i" } },
+    { description: { $regex: esc, $options: "i" } },
+  ]);
+
   const list = await Task.find({
-    $and: [
-      { $or: [{ createdBy: userId }, { assignedTo: userId }] },
-      {
-        $or: [
-          { title: { $regex: titleHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-          { description: { $regex: titleHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-        ],
-      },
-    ],
+    $and: [{ $or: [{ createdBy: userId }, { assignedTo: userId }] }, { $or: orCond }],
   })
     .select("_id title status dueDate")
     .sort({ updatedAt: -1 })
-    .limit(limit)
+    .limit(Math.max(limit * 6, 18))
     .lean();
-  return list.map((t) => ({
+  const out = [];
+  const seen = new Set();
+  for (const t of list) {
+    const id = String(t._id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out.map((t) => ({
     taskId: String(t._id),
     title: t.title,
     status: t.status,
@@ -636,7 +756,7 @@ Reply with ONLY one word: action OR analytical`,
       markAiUnavailable(120 * 1000);
     }
     console.error("classifyIntent error:", err.message);
-    return false; // safer — action side pe bhejo
+    return false;
   }
 }
 
@@ -645,12 +765,13 @@ Reply with ONLY one word: action OR analytical`,
 // ─────────────────────────────────────────────
 exports.handleAI = async (req, reply) => {
   try {
-    const payload =
-      await parseAICommandPayload(req);
-    const text = normalizeUserText(payload.text || "");
+    const payload = await parseAICommandPayload(req);
+    const rawUserText = String(payload.text || "").trim();
+    const text = normalizeUserText(rawUserText);
     const { pendingTool, pendingInput, contextTaskIds, uploadedFile } = payload;
     const user = req.user;
     req.aiUploadFile = uploadedFile || null;
+    req.aiRawUserText = rawUserText;
     req.aiOriginalText = text || "";
     req.setDraft = (d) => setDraft(user.id, d);
 
@@ -658,8 +779,13 @@ exports.handleAI = async (req, reply) => {
       setChatTaskContext(user.id, contextTaskIds);
     }
 
+    const draft = getDraft(user.id);
     const chatLang = detectChatLanguage(text);
     if (!text?.trim()) {
+      if (draft?.tool === "updateTaskFile" && req.aiUploadFile?.buffer && isValidObjectId(draft?.input?.taskId)) {
+        clearDraft(user.id);
+        return await executeTool("updateTaskFile", { ...(draft.input || {}) }, req, reply);
+      }
       return reply.send({
         success: false,
         message: pickByLanguage(chatLang, {
@@ -709,14 +835,75 @@ exports.handleAI = async (req, reply) => {
       });
     }
 
+    // Jo list chat mein aayi (contextTaskIds), uske sabse neeche wale task ko cancel — hard DB delete API nahi
+    if (wantsLastListedTaskRemove(text)) {
+      const listedIds = peekChatTaskContext(user.id);
+      if (!listedIds.length) {
+        return reply.send({
+          success: true,
+          type: "analyst",
+          message: l10n(
+            chatLang,
+            "First show a task list in chat (e.g. \"cancelled tasks dikhao\"), then say \"last wala cancel\" or \"last task delete\". I use the list order from your last reply — permanent DB delete is not available here; I can cancel (admin only).",
+            "पहले chat में task list दिखाएँ, फिर \"last wala cancel\" बोलें। यहाँ permanent delete नहीं — cancel (admin)।",
+            "Pehle chat mein list dikhao (jaise \"cancelled task bta\"), phir bolo \"last wala delete/cancel\". Neeche wala = list ka last item. Permanent DB delete yahan nahi — **cancel** hoga (sirf admin)."
+          ),
+        });
+      }
+      if (!isAllowed(user, "cancelTask")) {
+        return reply.send({
+          success: true,
+          type: "analyst",
+          message: l10n(
+            chatLang,
+            "Your role cannot cancel tasks from chat. Use the app or ask an admin.",
+            "आपके role से chat से cancel/delete नहीं हो सकता।",
+            "Tumhare role se chat se task cancel/delete allowed nahi. Tasks page ya admin se karo."
+          ),
+        });
+      }
+      const taskId = listedIds[listedIds.length - 1];
+      return reply.send({
+        success: true,
+        confirm: true,
+        tool: "cancelTask",
+        input: { taskId },
+        message: l10n(
+          chatLang,
+          "Cancel the bottom task from your last chat list? (Sets status to Cancelled — not permanent delete.)",
+          "चैट लिस्ट का सबसे नीचे वाला task cancel करें? (स्थायी delete नहीं।)",
+          "Jo list abhi chat mein thi, uske **sabse neeche wale** task ko **cancel** karun? (Permanent delete nahi — sirf Cancelled status.)"
+        ),
+      });
+    }
+
+    // 🎯 SMART TASK RESOLUTION - Handle task title extraction
+    if (req.aiExtractedTaskTitle) {
+      const foundTask = await findTaskByTitle(user, req.aiExtractedTaskTitle);
+      if (foundTask) {
+        req.aiExtractedTaskId = foundTask._id;
+        req.aiExtractedTask = foundTask;
+        console.log(`[TASK-RESOLVER] Found task "${req.aiExtractedTaskTitle}" → ID: ${foundTask._id}`);
+      } else {
+        console.log(`[TASK-RESOLVER] Task "${req.aiExtractedTaskTitle}" not found`);
+      }
+    }
+
     // Draft flow: createSimpleTask slot-filling (title + dueDate)
-    const draft = getDraft(user.id);
     if (draft) {
       if (isValidObjectId(text.trim())) {
         draft.input = draft.input || {};
         draft.input.taskId = text.trim();
         clearDraft(user.id);
         return await executeTool(draft.tool, draft.input, req, reply);
+      }
+      if (Array.isArray(draft.candidates) && draft.candidates.length) {
+        const idx = extractCandidateSelectionIndex(text);
+        if (idx != null && draft.candidates[idx]?.taskId) {
+          const nextInput = { ...(draft.input || {}), taskId: draft.candidates[idx].taskId };
+          clearDraft(user.id);
+          return await executeTool(draft.tool, nextInput, req, reply);
+        }
       }
     }
     if (draft?.tool === "createSimpleTask") {
@@ -805,7 +992,7 @@ exports.handleAI = async (req, reply) => {
 
       const merged = { ...(draft.input || {}) };
       if (!isValidObjectId(merged.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) merged.taskId = inferred;
       }
 
@@ -889,7 +1076,45 @@ exports.handleAI = async (req, reply) => {
       return await executeTool(pendingTool, pendingInput || {}, req, reply);
     }
 
+    // Policy-driven pre-routing (declarative rules, not imperative branch chains)
+    const conversationState = deriveConversationState(draft, Boolean(req.aiUploadFile?.buffer));
+    const routePolicy = evaluateRoutingPolicy(text, {
+      currentDraftTool: draft?.tool || null,
+      conversationState,
+    });
+    if (routePolicy.route === "analytical") {
+      const answer = await askAnalyst(routePolicy.analystText || text, user.role, user.id);
+      return reply.send({ success: true, type: "analyst", message: answer });
+    }
+    const forceActionByPolicy = routePolicy.route === "action";
+
     // ─── PATH 2: Classify ───
+    if (isStatusFilterFollowup(text)) {
+      const inferred = inferListFiltersFromText(`tasks ${text}`);
+      return await executeTool("getTasks", inferred, req, reply);
+    }
+
+    if (isGlobalTaskCountQuery(text)) {
+      const status = extractStatusForCountQuery(text);
+      const filter =
+        user.role === "admin"
+          ? {}
+          : { $or: [{ createdBy: user.id }, { assignedTo: user.id }] };
+      if (status) filter.status = status;
+      const total = await Task.countDocuments(filter);
+      const statusLabel = status ? `${status} ` : "";
+      return reply.send({
+        success: true,
+        type: "analyst",
+        message: l10n(
+          chatLang,
+          `Total ${statusLabel}tasks: ${total}.`,
+          `कुल ${statusLabel}tasks: ${total}.`,
+          `Total ${statusLabel}tasks: ${total}.`
+        ),
+      });
+    }
+
     if (isUserAssignedListQuery(text)) {
       const me = await User.findById(user.id).select("_id name email role").lean();
       const asksSelf =
@@ -921,15 +1146,15 @@ exports.handleAI = async (req, reply) => {
 
       let users = [];
       if (q.includes("@")) {
-        users = await User.find({ email: { $regex: `^${q}$`, $options: "i" } })
+        users = await User.find({
+          email: { $regex: `^${escapeRegex(q)}$`, $options: "i" },
+        })
           .select("_id name email role")
           .lean();
       } else {
         const tokens = q.split(/\s+/).filter(Boolean);
-        const tokenRegex = tokens
-          .map((t) => `(?=.*${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`)
-          .join("");
-        const safePattern = tokenRegex ? `${tokenRegex}.*` : q;
+        const tokenRegex = tokens.map((t) => `(?=.*${escapeRegex(t)})`).join("");
+        const safePattern = tokenRegex ? `${tokenRegex}.*` : escapeRegex(q);
         users = await User.find({ name: { $regex: safePattern, $options: "i" } })
           .select("_id name email role")
           .lean();
@@ -962,6 +1187,8 @@ exports.handleAI = async (req, reply) => {
     }
 
     let isAnalytical = await classifyIntent(text);
+    if (forceActionByPolicy) isAnalytical = false;
+    if (hasKeywordSearchIntent(text)) isAnalytical = false;
     if (mustUseActionPath(text)) isAnalytical = false;
 
     if (isAnalytical) {
@@ -970,7 +1197,7 @@ exports.handleAI = async (req, reply) => {
     }
 
     // ─── PATH 3: Action → Tool ───
-    let aiRes = shouldUseQuickIntent(text) ? quickIntent(text) : null;
+    let aiRes = quickIntent(text);
     let source = aiRes ? "quick" : "ai";
 
     if (!aiRes) {
@@ -987,13 +1214,39 @@ exports.handleAI = async (req, reply) => {
     }
     aiRes = sanitizeAgentResult(aiRes);
 
+    if (aiRes?.tool === "cancelTask" && isStatusFilteredListQuery(text)) {
+      aiRes = sanitizeAgentResult({
+        tool: "getTasks",
+        input: inferListFiltersFromText(text),
+        confidence: 0.93,
+        needs_clarification: false,
+      });
+      source = "status-list-not-cancel";
+    }
+
+    const forcedStatusTool = inferStatusActionTool(text);
+    if (forcedStatusTool && ["unknown", "createSimpleTask", "assignTask"].includes(aiRes?.tool)) {
+      aiRes = {
+        ...aiRes,
+        tool: forcedStatusTool,
+        input: { ...(aiRes?.input || {}) },
+        confidence: Math.max(Number(aiRes?.confidence || 0), 0.8),
+        needs_clarification: !isValidObjectId(aiRes?.input?.taskId),
+      };
+      source = "status-intent-coerce";
+    }
+
     console.log(`[AI] source=${source} tool=${aiRes?.tool} input=`, aiRes?.input);
 
     // Deterministic listing fallback: avoid unknown/clarification loops for list queries
     const hasFocusedAssignee = Boolean(getFocusedAssignee(user.id)?.assigneeUserId);
-    if (hasTaskListIntent(text) || (isGenericListOnly(text) && hasFocusedAssignee)) {
+    if (hasTaskListIntent(text) || hasKeywordSearchIntent(text) || (isGenericListOnly(text) && hasFocusedAssignee)) {
       const inferredList = inferListFiltersFromText(text);
-      if (aiRes?.tool === "unknown" || aiRes?.tool === "getTasks") {
+      if (
+        aiRes?.tool === "unknown" ||
+        aiRes?.tool === "getTasks" ||
+        (aiRes?.tool === "cancelTask" && isStatusFilteredListQuery(text))
+      ) {
         const focused = getFocusedAssignee(user.id);
         if (focused?.assigneeUserId && isGenericListOnly(text)) {
           inferredList.assignedTo = focused.assigneeUserId;
@@ -1028,7 +1281,7 @@ exports.handleAI = async (req, reply) => {
 
     if ((isAiUnavailable() || !process.env.GROQ_API_KEY?.trim()) && (!aiRes || aiRes.tool === "unknown")) {
       // Deterministic task-list fallback if query resembles list intent.
-      if (hasTaskListIntent(text) || isGenericListOnly(text)) {
+      if (hasTaskListIntent(text) || hasKeywordSearchIntent(text) || isGenericListOnly(text)) {
         const inferredList = inferListFiltersFromText(text);
         const focused = getFocusedAssignee(user.id);
         if (focused?.assigneeUserId && isGenericListOnly(text)) {
@@ -1091,7 +1344,7 @@ exports.handleAI = async (req, reply) => {
     // Action tools ke liye clarification se pehle deterministic task resolve try karo
     if (["cancelTask", "startTask", "verifyTask", "updateTaskTitle", "updateTaskFile", "updateTaskDueDate", "assignTask"].includes(aiRes.tool)) {
       if (!isValidObjectId(aiRes.input?.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
       }
       if (isValidObjectId(aiRes.input?.taskId)) {
@@ -1115,9 +1368,9 @@ exports.handleAI = async (req, reply) => {
         return reply.send({ success: true, type: "analyst", message: blocked });
       }
       if (["cancelTask", "startTask", "verifyTask", "assignTask", "updateTaskTitle", "updateTaskDueDate", "updateTaskFile"].includes(aiRes?.tool)) {
-        const choices = await suggestTaskChoicesFromTitle(user.id, text, 3);
+        const choices = await suggestTaskChoicesFromTitle(user.id, text, 3, req.aiRawUserText);
         if (choices.length) {
-          setDraft(user.id, { tool: aiRes.tool, input: aiRes.input || {}, clarifyQuery: text });
+          setDraft(user.id, { tool: aiRes.tool, input: aiRes.input || {}, clarifyQuery: text, candidates: choices });
           return reply.send({
             success: true,
             type: "clarify",
@@ -1130,7 +1383,7 @@ exports.handleAI = async (req, reply) => {
           });
         }
       }
-      const candidates = await retrieveTaskCandidates(user.id, text);
+      const candidates = await retrieveTaskCandidates(user.id, text, 3, req.aiRawUserText);
       if (!candidates.length) {
         return reply.send({
           success: true,
@@ -1226,9 +1479,20 @@ exports.handleAI = async (req, reply) => {
       }
     }
 
+    if (aiRes.tool === "exportTasks") {
+      aiRes.input = { ...(aiRes.input || {}), ...inferListFiltersFromText(text) };
+      const focus = getFocusedAssignee(user.id);
+      const hasExplicitAssigned = Boolean(aiRes.input?.assignedTo);
+      if (focus && !hasExplicitAssigned && isGenericListOnly(text)) {
+        aiRes.input.assignedTo = focus.assigneeUserId;
+      } else if (!focus || /\b(my tasks|meri tasks|mere tasks)\b/i.test(text)) {
+        clearFocusedAssignee(user.id);
+      }
+    }
+
     if (["cancelTask", "startTask", "verifyTask"].includes(aiRes.tool)) {
       if (!isValidObjectId(aiRes.input?.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
       }
       if (!isValidObjectId(aiRes.input?.taskId)) {
@@ -1255,7 +1519,7 @@ exports.handleAI = async (req, reply) => {
       const guessed = extractTitleUpdateInput(text);
       aiRes.input = { ...guessed, ...(aiRes.input || {}) };
       if (!isValidObjectId(aiRes.input?.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
       }
       if (!aiRes.input?.taskId) {
@@ -1280,7 +1544,7 @@ exports.handleAI = async (req, reply) => {
 
     if (aiRes.tool === "updateTaskFile") {
       if (!isValidObjectId(aiRes.input?.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
       }
       if (!aiRes.input?.taskId) {
@@ -1309,7 +1573,7 @@ exports.handleAI = async (req, reply) => {
 
     if (aiRes.tool === "updateTaskDueDate") {
       if (!isValidObjectId(aiRes.input?.taskId)) {
-        const inferred = await resolveTaskIdFromText(user.id, text);
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
       }
       aiRes.input = await finalizeUpdateDueDateInput(text, user.id, aiRes.input);

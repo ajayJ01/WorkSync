@@ -55,7 +55,7 @@ ALLOWED TOOLS and when to use them:
 - updateTaskDueDate → change due date for ONE task; input must include taskId and EITHER 'dueDate' as string OR 'incrementDays' as an integer to add days (e.g. {"taskId":"...","incrementDays":1}).
 - extendPendingDueDate → use ONLY if the user says "saari pending" or "pending task ki due date" without any specific task identifier. Input: {"days":1}
 - verifyTask     → admin wants to verify/approve a task (e.g. "task verify karo", "approve karo")
-- exportTasks    → user wants to export tasks (e.g. "export karo", "download tasks")
+- exportTasks    → user wants to export tasks (e.g. "export karo", "download tasks", "pending tasks export"); put filters in input: {"status":"pending"} when user says pending/verified/cancelled etc.
 - unknown        → input is unclear, abusive, or not related to tasks
 
 IMPORTANT RULES:

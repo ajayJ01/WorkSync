@@ -120,8 +120,10 @@ function quickIntent(userInput) {
 
   // ── Case 6: File update (assign se pehle, taaki "file change" pe assign misfire na ho)
   const wantsFileUpdate =
-    /(file|attachment|attach|document|pdf|image|screenshot|upload)/i.test(lower) &&
-    /(task|due date|deadline|jiski due|isko|usko|update|replace|badal|change)/i.test(lower);
+    /(file|attachment|attach|attached|document|pdf|image|screenshot|upload)/i.test(lower) &&
+    /(tasks?\b|task list|kaam|due date|deadline|jiski due|isko|usko|usme|isme|jisme|jinme|update|replace|badal|change)/i.test(
+      lower
+    );
   if (wantsFileUpdate) {
     return { tool: "updateTaskFile", input: {}, source: "quick" };
   }

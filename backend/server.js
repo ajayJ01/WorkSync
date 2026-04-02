@@ -47,6 +47,7 @@ fastify.get("/", async (req, reply) => {
 fastify.register(require("./routes/authRoutes"));
 fastify.register(require("./routes/userRoutes"));
 fastify.register(require("./routes/taskRoutes"));
+fastify.register(require("./routes/intentMonitorRoutes"));
 
 // 6️⃣ Global Error Handler (406-safe)
 fastify.setErrorHandler((error, request, reply) => {
@@ -66,13 +67,17 @@ fastify.setErrorHandler((error, request, reply) => {
     });
   }
 
-  return reply
-    .code(error.statusCode || 500)
-    .type("application/json")
-    .send({
-      success: false,
-      message: error.message || "Something went wrong",
-    });
+  const statusCode = error.statusCode || 500;
+  const isProd = process.env.NODE_ENV === "production";
+  const message =
+    statusCode >= 500 && isProd
+      ? "Something went wrong"
+      : error.message || "Something went wrong";
+
+  return reply.code(statusCode).type("application/json").send({
+    success: false,
+    message,
+  });
 });
 
 // 7️⃣ Start server

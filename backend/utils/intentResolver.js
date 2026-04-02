@@ -1,5 +1,7 @@
 const Task = require("../models/Task");
 const { parseDueDateFromText } = require("./parseDueDate");
+const { escapeRegexTruncated } = require("./regexSafe");
+const { extractTitleHintVariants } = require("./chatTitleHint");
 
 const SUPPORTED_TOOLS = new Set([
   "getTasks",
@@ -37,15 +39,6 @@ function needsClarification(aiRes) {
   return false;
 }
 
-function extractTitleHint(text) {
-  const raw = String(text || "").trim();
-  const m =
-    raw.match(/\btitle\s+(.+?)\s+hai\b/i) ||
-    raw.match(/\bjiska\s+title\s+(.+?)\s+hai\b/i) ||
-    raw.match(/\btask\s+(.+?)\s+(?:ko|ka|ki)\b/i);
-  return m?.[1]?.trim() || "";
-}
-
 function sameLocalSlot(a, b) {
   if (!(a instanceof Date) || !(b instanceof Date)) return false;
   return (
@@ -57,10 +50,11 @@ function sameLocalSlot(a, b) {
   );
 }
 
-async function retrieveTaskCandidates(userId, text, limit = 3) {
+async function retrieveTaskCandidates(userId, text, limit = 3, rawText = null) {
   const visibility = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
   const due = parseDueDateFromText(String(text || ""));
-  const titleHint = extractTitleHint(text);
+  const titleVariants = extractTitleHintVariants(text, rawText);
+  const escs = titleVariants.map((h) => escapeRegexTruncated(h)).filter(Boolean);
 
   let list = [];
   if (due && !isNaN(due.getTime())) {
@@ -69,15 +63,23 @@ async function retrieveTaskCandidates(userId, text, limit = 3) {
       .sort({ updatedAt: -1 })
       .lean();
     list = all.filter((t) => t?.dueDate && sameLocalSlot(new Date(t.dueDate), due));
-  } else if (titleHint) {
-    const esc = titleHint.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  } else if (escs.length) {
+    const orTitle = escs.flatMap((esc) => [{ title: { $regex: esc, $options: "i" } }]);
     list = await Task.find({
-      $and: [visibility, { title: { $regex: esc, $options: "i" } }],
+      $and: [visibility, { $or: orTitle }],
     })
       .select("_id title dueDate status")
       .sort({ updatedAt: -1 })
-      .limit(limit)
+      .limit(Math.max(limit * 4, 12))
       .lean();
+    const seen = new Set();
+    list = list.filter((t) => {
+      const id = String(t._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    list = list.slice(0, limit);
   } else {
     list = await Task.find(visibility)
       .select("_id title dueDate status")
