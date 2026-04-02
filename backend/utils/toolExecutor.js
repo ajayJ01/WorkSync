@@ -1,6 +1,9 @@
 const task = require("../controllers/taskController");
 const Task = require("../models/Task");
+const User = require("../models/User");
 const { success } = require("./response");
+const { parseDueDateFromText } = require("./parseDueDate");
+const { uploadFile } = require("./fileUpload");
 
 const AI_TASKS_PAGE_LIMIT = Math.min(
   parseInt(process.env.AI_CHAT_TASKS_LIMIT, 10) || 200,
@@ -10,6 +13,10 @@ const AI_TASKS_PAGE_LIMIT = Math.min(
 function applyAiListQuery(req, input) {
   req.query = { ...(req.query || {}), page: 1, limit: String(AI_TASKS_PAGE_LIMIT) };
   if (input?.status) req.query.status = input.status;
+  if (input?.statusIn) req.query.statusIn = input.statusIn;
+  if (input?.from) req.query.from = input.from;
+  if (input?.to) req.query.to = input.to;
+  if (input?.assignedTo) req.query.assignedTo = String(input.assignedTo);
 }
 
 // ⚠️ NOTE: createTask, submitTask, deleteTask — AI se allowed nahi hain
@@ -44,6 +51,237 @@ async function executeTool(tool, input, req, reply) {
       }
       applyAiListQuery(req, input);
       return task.getAllTasks(req, reply);
+    }
+
+    case "createSimpleTask": {
+      const userId = req.user.id;
+      const title = String(input?.title || input?.taskTitle || "").trim();
+      const description = String(input?.description || "").trim();
+      const dueRaw = String(input?.dueDate || "").trim();
+      const fromOriginalText = parseDueDateFromText(String(req.aiOriginalText || ""));
+
+      if (!title) {
+        return reply.send({
+          success: false,
+          message:
+            "Quick task banane ke liye title do. Example: \"kal 5 baje tak client follow-up task banao\"",
+        });
+      }
+
+      const parsedDue =
+        fromOriginalText ||
+        (dueRaw && !isNaN(new Date(dueRaw).getTime()) && new Date(dueRaw)) ||
+        parseDueDateFromText(`${title} ${description} ${dueRaw}`) ||
+        null;
+
+      if (!parsedDue) {
+        return reply.send({
+          success: false,
+          message:
+            "Due date samajh nahi aayi. Example: 2026-04-25, 25/4/2026, ya 25 April 2026.",
+        });
+      }
+
+      // Guard: chat-created task should not be born already overdue.
+      const now = new Date();
+      if (parsedDue.getTime() < now.getTime() - 60 * 1000) {
+        return reply.send({
+          success: false,
+          message:
+            "Due date past me aa rahi hai. Future time do (e.g. \"kal 12 bje\", \"today 11:59 PM\").",
+        });
+      }
+
+      let fileUrl = null;
+      if (req.aiUploadFile?.buffer) {
+        fileUrl = await uploadFile(req.aiUploadFile, {
+          folder: "uploads/tasks",
+          allowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".webp"],
+          maxSizeMB: 5,
+        });
+      }
+
+      const created = await Task.create({
+        title,
+        description: description || "Created via chat",
+        dueDate: parsedDue,
+        ...(fileUrl && { fileUrl }),
+        assignedTo: [userId],
+        createdBy: userId,
+        status: "pending",
+      });
+
+      const populated = await Task.findById(created._id)
+        .populate("assignedTo", "name email")
+        .populate("createdBy", "name email")
+        .lean();
+
+      return success(reply, "Quick task create ho gaya", populated);
+    }
+
+    case "updateTaskFile": {
+      const userId = req.user.id;
+      const taskId = input?.taskId;
+      if (!taskId || !/^[a-f\d]{24}$/i.test(String(taskId))) {
+        return reply.send({
+          success: false,
+          message: "Kaunsi task mein file update karni hai? Task ID ya clear reference do.",
+        });
+      }
+      if (!req.aiUploadFile?.buffer) {
+        return reply.send({
+          success: false,
+          message: "File missing hai. Pehle file attach karo, phir command bhejo.",
+        });
+      }
+
+      const taskDoc = await Task.findOne({
+        _id: taskId,
+        $or: [{ createdBy: userId }, { assignedTo: userId }],
+      });
+      if (!taskDoc) {
+        return reply.send({
+          success: false,
+          message: "Task nahi mili ya tumhare paas access nahi hai.",
+        });
+      }
+
+      const fileUrl = await uploadFile(req.aiUploadFile, {
+        folder: "uploads/tasks",
+        allowedExtensions: [".pdf", ".png", ".jpg", ".jpeg", ".webp"],
+        maxSizeMB: 5,
+      });
+      taskDoc.fileUrl = fileUrl;
+      taskDoc.updatedAt = new Date();
+      await taskDoc.save();
+
+      const populated = await Task.findById(taskDoc._id)
+        .populate("assignedTo", "name email")
+        .populate("createdBy", "name email")
+        .lean();
+      return success(reply, "Task file update ho gayi", populated);
+    }
+
+    case "assignTask": {
+      const userId = req.user.id;
+      let taskId = input?.taskId;
+      const q = String(input?.assigneeQuery || "").trim();
+      const taskTitle = String(input?.taskTitle || "").trim();
+      const dueRaw = String(input?.dueDate || "").trim();
+
+      const visibility = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
+      if (!taskId) {
+        // 1) dueDate hint se resolve
+        if (dueRaw) {
+          const d = new Date(dueRaw);
+          if (!isNaN(d.getTime())) {
+            const candidates = await Task.find(visibility).select("_id dueDate status title").lean();
+            const same = candidates.filter((t) => {
+              if (!t?.dueDate) return false;
+              const x = new Date(t.dueDate);
+              return (
+                x.getMonth() === d.getMonth() &&
+                x.getDate() === d.getDate() &&
+                x.getHours() === d.getHours() &&
+                x.getMinutes() === d.getMinutes()
+              );
+            });
+            if (same.length === 1) taskId = String(same[0]._id);
+            else if (same.length > 1) {
+              const active = same.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+              if (active.length === 1) taskId = String(active[0]._id);
+            }
+          }
+        }
+
+        // 2) title hint se resolve
+        if (!taskId && taskTitle) {
+          const sameTitle = await Task.find({
+            $and: [
+              visibility,
+              { title: { $regex: taskTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
+            ],
+          })
+            .select("_id status")
+            .lean();
+          if (sameTitle.length === 1) taskId = String(sameTitle[0]._id);
+          else if (sameTitle.length > 1) {
+            const active = sameTitle.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+            if (active.length === 1) taskId = String(active[0]._id);
+          }
+        }
+      }
+
+      if (!taskId || !/^[a-f\d]{24}$/i.test(String(taskId))) {
+        return reply.send({
+          success: false,
+          message: "Kaunsi task assign karni hai? Task ID do, ya exact due date/title ke saath bolo.",
+        });
+      }
+      if (!q) {
+        return reply.send({
+          success: false,
+          message: "Kisko assign karna hai? Name ya email likho (e.g. test user).",
+        });
+      }
+
+      const taskDoc = await Task.findOne({ _id: taskId, ...visibility });
+      if (!taskDoc) {
+        return reply.send({
+          success: false,
+          message: "Task nahi mili ya tumhare paas access nahi hai.",
+        });
+      }
+
+      const queries = q.split(/\s+(?:and|aur|&|,)\s+/i).map(s => s.trim().replace(/\s+(user|users)$/i, "")).filter(Boolean);
+      let foundUsers = [];
+      for (const iq of queries) {
+        let matches = [];
+        if (iq.includes("@")) {
+          matches = await User.find({ email: { $regex: `^${iq}$`, $options: "i" } })
+            .select("_id name email role")
+            .lean();
+        } else {
+          matches = await User.find({ name: { $regex: iq, $options: "i" } })
+            .select("_id name email role")
+            .lean();
+        }
+
+        if (!matches.length) {
+          return reply.send({
+            success: false,
+            message: `User "${iq}" nahi mila.`,
+          });
+        }
+        if (matches.length > 1) {
+          if (req.setDraft) {
+             req.setDraft({ tool: "assignTask", input, clarifyQuery: iq });
+             return reply.send({
+                success: true,
+                type: "clarify",
+                message: `\"${iq}\" se ${matches.length} users mil rahe hain. Exact email do.`,
+             });
+          }
+          return reply.send({
+            success: false,
+            message: `\"${iq}\" se ${matches.length} users mil rahe hain. Exact email do.`,
+          });
+        }
+        foundUsers.push(matches[0]);
+      }
+
+      const uniqueIds = [...new Set(foundUsers.map(u => String(u._id)))];
+      taskDoc.assignedTo = uniqueIds;
+      taskDoc.updatedAt = new Date();
+      await taskDoc.save();
+
+      const populated = await Task.findById(taskDoc._id)
+        .populate("assignedTo", "name email")
+        .populate("createdBy", "name email")
+        .lean();
+
+      const names = foundUsers.map(u => u.name).join(", ");
+      return success(reply, `Task ${names} ko assign ho gayi`, populated);
     }
 
     case "startTask":
@@ -142,6 +380,7 @@ async function executeTool(tool, input, req, reply) {
       const userId = req.user.id;
       const taskId = input?.taskId;
       const rawDue = input?.dueDate;
+      const incrementDays = parseInt(input?.incrementDays, 10);
       if (!taskId || !/^[a-f\d]{24}$/i.test(String(taskId))) {
         return reply.send({
           success: false,
@@ -149,7 +388,7 @@ async function executeTool(tool, input, req, reply) {
         });
       }
       const dueDate = rawDue ? new Date(rawDue) : null;
-      if (!dueDate || isNaN(dueDate.getTime())) {
+      if ((!dueDate || isNaN(dueDate.getTime())) && !(incrementDays > 0)) {
         return reply.send({
           success: false,
           message: "Due date invalid hai — ISO ya clear date bhejo.",
@@ -165,7 +404,13 @@ async function executeTool(tool, input, req, reply) {
           message: "Task nahi mila ya access nahi hai.",
         });
       }
-      taskDoc.dueDate = dueDate;
+      if (incrementDays > 0) {
+        const base = taskDoc.dueDate ? new Date(taskDoc.dueDate) : new Date();
+        base.setDate(base.getDate() + Math.min(incrementDays, 365));
+        taskDoc.dueDate = base;
+      } else {
+        taskDoc.dueDate = dueDate;
+      }
       taskDoc.updatedAt = new Date();
       await taskDoc.save();
       const populated = await Task.findById(taskDoc._id)
@@ -173,6 +418,45 @@ async function executeTool(tool, input, req, reply) {
         .populate("createdBy", "name email")
         .lean();
       return success(reply, "Due date update ho gayi", populated);
+    }
+
+    case "updateTaskTitle": {
+      const userId = req.user.id;
+      const taskId = input?.taskId;
+      const nextTitle = String(input?.title || "").trim();
+      if (!taskId || !/^[a-f\d]{24}$/i.test(String(taskId))) {
+        return reply.send({
+          success: false,
+          message: "Task ID missing ya galat hai.",
+        });
+      }
+      if (!nextTitle) {
+        return reply.send({
+          success: false,
+          message: "Naya title missing hai. Example: title update karo ki fix bugs.",
+        });
+      }
+
+      const taskDoc = await Task.findOne({
+        _id: taskId,
+        $or: [{ createdBy: userId }, { assignedTo: userId }],
+      });
+      if (!taskDoc) {
+        return reply.send({
+          success: false,
+          message: "Task nahi mili ya access nahi hai.",
+        });
+      }
+
+      taskDoc.title = nextTitle.slice(0, 140);
+      taskDoc.updatedAt = new Date();
+      await taskDoc.save();
+
+      const populated = await Task.findById(taskDoc._id)
+        .populate("assignedTo", "name email")
+        .populate("createdBy", "name email")
+        .lean();
+      return success(reply, "Task title update ho gaya", populated);
     }
 
     case "verifyTask":

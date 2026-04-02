@@ -1,0 +1,38 @@
+{
+  "about": "WorkSync ek modern task management platform hai jahan teams tasks create, assign, track aur verify kar sakti hain. Iska focus speed, clarity, aur accountability par hai.",
+  "contact": {
+    "email": "support@worksync.app",
+    "phone": "+91-00000-00000",
+    "hours": "Mon-Sat, 10:00 AM - 7:00 PM IST"
+  },
+  "faq": [
+    {
+      "q": "WorkSync kya hai?",
+      "a": "WorkSync ek collaborative task management app hai jo admin aur users ko end-to-end task workflow manage karne me help karta hai."
+    },
+    {
+      "q": "Kaun kaunse roles hote hain?",
+      "a": "Do primary roles hote hain: admin aur user. Admin tasks assign/verify/manage karta hai, user assigned tasks execute aur submit karta hai."
+    },
+    {
+      "q": "Task status flow kya hai?",
+      "a": "Typical flow: pending -> in_progress -> submitted -> verified. Exceptional states: rejected, cancelled, due."
+    },
+    {
+      "q": "Kya file upload supported hai?",
+      "a": "Haan, task create/update aur submission flows me file upload supported hai (size/type validations ke saath)."
+    },
+    {
+      "q": "Chatbot se kya kya kar sakte hain?",
+      "a": "Chatbot se tasks list/filter, quick create, title/due/file update, assign, aur status-related actions perform kiye ja sakte hain (permissions ke hisaab se)."
+    },
+    {
+      "q": "Support kaise milega?",
+      "a": "Aap support@worksync.app par email kar sakte hain. Working hours: Mon-Sat, 10:00 AM - 7:00 PM IST."
+    },
+    {
+      "q": "Privacy aur data security?",
+      "a": "WorkSync authenticated access, role-based permissions aur backend validations use karta hai. Sensitive actions me confirmation aur access checks apply hote hain."
+    }
+  ]
+}

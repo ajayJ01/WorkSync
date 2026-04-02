@@ -12,12 +12,12 @@ function isCreateTaskChatIntent(text) {
   const lower = (text || "").toLowerCase();
   if (!hasTaskWord(lower)) return false;
 
-  if (/(create|add|banao|banado|bana do|bana de|banaye|bnana|bnado)/i.test(lower)) return true;
+  if (/\b(create|add|banao|banado|bana do|bana de|banaye|bnana|bnado)\b/i.test(lower)) return true;
 
   if (/\bnew\b/.test(lower) && /(karo|krdo|kardo|kar do|kar de|karna|ban|do|lo|de|krna)/i.test(lower))
     return true;
 
-  if (/\b(ek|one|1)\b/.test(lower) && /(task|tasks)/i.test(lower) && /(bana|banao|create|add|new)/i.test(lower))
+  if (/\b(ek|one|1)\b/.test(lower) && /\b(task|tasks)\b/i.test(lower) && /\b(bana|banao|create|add|new)\b/i.test(lower))
     return true;
 
   return false;
@@ -26,7 +26,14 @@ function isCreateTaskChatIntent(text) {
 function isSubmitTaskChatIntent(text) {
   const lower = (text || "").toLowerCase();
   if (!hasTaskWord(lower)) return false;
-  return /(submit|upload|file|attachment|जमा)/i.test(lower);
+  // "create task ... attached file" ko submit intent mat samjho
+  const createLike = /\b(create|add|new task|naya task|banao|banado|bana do|ek task)\b/i.test(lower);
+  if (createLike) return false;
+
+  // Submit intent tabhi jab submit/update/upload verb ho + file cue ho
+  const submitVerb = /(submit|जमा|update file|replace file|upload|re-upload|resubmit)/i.test(lower);
+  const fileCue = /(file|attachment|attach|document|pdf|image|screenshot)/i.test(lower);
+  return submitVerb && fileCue;
 }
 
 /** "pending complete" — app mein = start + baad mein submit (verify admin) */
@@ -50,6 +57,16 @@ function isCompleteStartedOrInProgressIntent(text) {
   return wantsDone && wasStarted;
 }
 
+/** Generic "task status done/complete" catch-all */
+function isGenericMarkDoneIntent(text) {
+  const lower = (text || "").toLowerCase();
+  if (!hasTaskWord(lower)) return false;
+  const wantsDone =
+    /(complete|completed|done|finish|mark|status\s+done|status\s+complete|band karo|close)/i.test(lower);
+  if (!wantsDone) return false;
+  return /(status|task|uska|isko|jiska|jiski)/i.test(lower);
+}
+
 function replyIfUnsupportedChatAction(text, role) {
   if (isCompleteStartedOrInProgressIntent(text)) {
     return (
@@ -68,6 +85,13 @@ function replyIfUnsupportedChatAction(text, role) {
     );
   }
 
+  if (isGenericMarkDoneIntent(text)) {
+    return (
+      "Task ko direct \"done/complete\" chat se mark nahi hota. " +
+      "Flow: Start task -> My Tasks se Submit (notes/file) -> Admin verify karega to Verified."
+    );
+  }
+
   if (isSubmitTaskChatIntent(text)) {
     return role === "admin"
       ? "Task submit karna = My Tasks page se karo (notes / file). Chat se abhi submit support nahi hai."
@@ -75,17 +99,9 @@ function replyIfUnsupportedChatAction(text, role) {
   }
 
   if (isCreateTaskChatIntent(text)) {
-    if (role === "admin") {
-      return (
-        "Naya task **chat se create nahi hota** — title, description, assignees, due date aur optional file form mein bharna padta hai. " +
-        "App mein **Tasks** (All Tasks) wale flow / jahan tum normally task banate ho, wahi use karo. " +
-        "Chat mein: tasks dikhao, export, start/cancel/verify, counts — ye sab chal sakta hai."
-      );
-    }
-    return (
-      "Naya task assign karna admin ka kaam hai; **chat se task create nahi hota**. " +
-      "Apni list ke liye yahan likho: **tasks dikhao** — ya **My Tasks** page kholo."
-    );
+    return role === "admin"
+      ? "Quick task chat se ban sakta hai. Example: \"kal report bhejni hai task banao\"."
+      : "Task create karna admin-only hai. Aap admin se task assign karwa sakte ho.";
   }
 
   return null;

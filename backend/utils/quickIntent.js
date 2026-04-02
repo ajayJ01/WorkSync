@@ -17,7 +17,7 @@ function extractStatusFilter(text) {
   if (lower.includes("verified"))  return "verified";
   if (lower.includes("cancelled")) return "cancelled";
   if (lower.includes("progress"))  return "in_progress";
-  if (lower.includes("submitted")) return "submitted";
+  if (lower.includes("submitted") || lower.includes("submited")) return "submitted";
   if (lower.includes("rejected"))  return "rejected";
   return null;
 }
@@ -43,7 +43,7 @@ function quickIntent(userInput) {
 
   // ── Case 2: getTasks — explicit "tasks + dikhao/fetch/show" combo ──
   const isShowTask =
-    (lower.includes("tasks") || lower.includes("task list")) &&
+    (lower.includes("tasks") || lower.includes("task") || lower.includes("task list")) &&
     (lower.includes("dikhao") || lower.includes("dikha") ||
      lower.includes("show") || lower.includes("fetch") ||
      lower.includes("list") || lower.includes("dekho") ||
@@ -109,7 +109,48 @@ function quickIntent(userInput) {
     return { tool: "extendPendingDueDate", input: { days: extendDays }, source: "quick" };
   }
 
-  // ── Case 6: Due date change (detail Groq / context se aayega)
+  // ── Case 5c: Create intent ko assign se pehle पकड़ो (phrase: "create ... assign to X")
+  const wantsCreate =
+    /\b(create|add|banao|banado|bana do|bana de|new task|naya task|naye task)\b/i.test(lower) &&
+    /\b(task|kaam)\b/i.test(lower);
+  // Allow assignment to override if sentence clearly means assign to an existing past-tense or created task
+  if (wantsCreate && !/\b(assign|assine|asign|reassign)\b/i.test(lower)) {
+    return { tool: "createSimpleTask", input: {}, source: "quick" };
+  }
+
+  // ── Case 6: File update (assign se pehle, taaki "file change" pe assign misfire na ho)
+  const wantsFileUpdate =
+    /(file|attachment|attach|document|pdf|image|screenshot|upload)/i.test(lower) &&
+    /(task|due date|deadline|jiski due|isko|usko|update|replace|badal|change)/i.test(lower);
+  if (wantsFileUpdate) {
+    return { tool: "updateTaskFile", input: {}, source: "quick" };
+  }
+
+  // ── Case 7: Assign / reassign task (strict phrases only)
+  const wantsAssign =
+    /\b(assign|assine|asign|reassign|allot|saupo)\b/i.test(lower) ||
+    /\bko\s+(assign|assine|asign|reassign)\b/i.test(lower) ||
+    /\b(assign|assine|asign|reassign)\s+to\b/i.test(lower);
+  if (!wantsCreate && wantsAssign && /(task|isko|is task|ye task|usko|ko)/i.test(lower)) {
+    const m =
+      userInput.match(/\b(?:to\s+)?([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/i) ||
+      userInput.match(/\b(?:isko|usko|is task ko|ye task ko)\s+(.+?)\s+ko\s+(?:assign|assine|asign|reassign)\b/i) ||
+      userInput.match(/\b(.+?)\s+ko\s+(?:assign|assine|asign|reassign)\b/i);
+    const assigneeQuery = m?.[1]?.trim() || "";
+    return { tool: "assignTask", input: assigneeQuery ? { assigneeQuery } : {}, source: "quick" };
+  }
+
+  // ── Case 8: Title update (due-date sentence se conflict avoid karne ke liye due update se pehle)
+  const wantsTitleUpdate =
+    /(title|name)\b/i.test(lower) &&
+    /(update|change|rename|badal|badlo|set|kro|karo|kar do|krdo)/i.test(lower) &&
+    /(task|jiski due|uska|isko|is task)/i.test(lower) &&
+    !/(status|done|complete|completed|verify|approved|submitted)/i.test(lower);
+  if (wantsTitleUpdate) {
+    return { tool: "updateTaskTitle", input: {}, source: "quick" };
+  }
+
+  // ── Case 9: Due date change (detail Groq / context se aayega)
   const wantsDueUpdate =
     /(due date|deadline|last date|\bdue\b)/i.test(lower) &&
     /(change|badal|badlo|badhao|badh|update|set|krdo|kardo|karo|kar do|extend|aage)/i.test(lower) &&

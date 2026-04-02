@@ -76,7 +76,7 @@ router.beforeEach((to, from, next) => {
       localStorage.removeItem('role')
       return next({ path: '/login', query: { reason: 'expired' } })
     }
-  } catch (error) {
+  } catch (_error) {
     // Token invalid
     clearChatStorageForCurrentUser()
     localStorage.removeItem('token')

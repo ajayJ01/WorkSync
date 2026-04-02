@@ -1,6 +1,5 @@
 import axios from 'axios';
 import router from '@/router'
-import { toast } from 'vue3-toastify'
 import { clearChatStorageForCurrentUser } from '@/utils/chatStorage'
 
 const api = axios.create({

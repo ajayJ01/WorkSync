@@ -96,6 +96,13 @@
 
           <div class="chat-input-bar">
             <input
+              ref="fileInputRef"
+              type="file"
+              class="d-none"
+              accept=".pdf,.png,.jpg,.jpeg,.webp"
+              @change="onPickFile"
+            />
+            <input
               v-model="inputText"
               type="text"
               class="chat-field"
@@ -106,13 +113,28 @@
             />
             <button
               type="button"
+              class="attach-fab"
+              :disabled="isLoading || !!pendingConfirm"
+              title="Attach file"
+              @click="openFilePicker"
+            >
+              <i class="bi bi-paperclip"></i>
+            </button>
+            <button
+              type="button"
               class="send-fab"
-              :disabled="isLoading || !inputText.trim() || !!pendingConfirm"
+              :disabled="isLoading || (!inputText.trim() && !selectedFile) || !!pendingConfirm"
               title="Send"
               @click="sendMessage"
             >
               <i class="bi bi-arrow-up"></i>
             </button>
+          </div>
+          <div v-if="selectedFile" class="file-chip-wrap">
+            <span class="file-chip">
+              <i class="bi bi-file-earmark-text me-1"></i>{{ selectedFile.name }}
+            </span>
+            <button class="file-chip-remove" type="button" @click="clearSelectedFile">Remove</button>
           </div>
         </div>
       </div>
@@ -153,6 +175,8 @@ const pendingConfirm = ref(null);
 const unreadCount = ref(0);
 const lastUserText = ref("");
 const pendingExport = ref(null);
+const selectedFile = ref(null);
+const fileInputRef = ref(null);
 /** Last AI task list — backend "iski ..." resolve karne ke liye */
 const lastContextTaskIds = ref([]);
 
@@ -189,6 +213,20 @@ const clearChat = () => {
   saveChatMessages([]);
 };
 
+const openFilePicker = () => {
+  fileInputRef.value?.click();
+};
+
+const onPickFile = (e) => {
+  const f = e?.target?.files?.[0] || null;
+  selectedFile.value = f;
+};
+
+const clearSelectedFile = () => {
+  selectedFile.value = null;
+  if (fileInputRef.value) fileInputRef.value.value = "";
+};
+
 const useHint = (hint) => {
   inputText.value = hint.replace(/[\u{1F300}-\u{1FFFF}]/gu, "").trim();
   sendMessage();
@@ -215,7 +253,7 @@ const addMessage = (role, text, extra = {}) => {
 
 const sendMessage = async () => {
   const text = inputText.value.trim();
-  if (!text || isLoading.value) return;
+  if ((!text && !selectedFile.value) || isLoading.value) return;
 
   if (pendingConfirm.value) {
     const isYes = /^(haan?|haa|ha|yes|y|pakka|theek hai|ok|okay|bilkul|confirm|karo|kar do)$/i.test(text);
@@ -238,13 +276,23 @@ const sendMessage = async () => {
 
   lastUserText.value = text;
   inputText.value = "";
-  addMessage("user", text);
+  addMessage("user", text || "📎 File attached", selectedFile.value ? { attachedFileName: selectedFile.value.name } : {});
   isLoading.value = true;
 
-  const [data, error] = await request("post", "/ai/command", {
+  let payload = {
     text,
     contextTaskIds: lastContextTaskIds.value,
-  });
+  };
+  if (selectedFile.value) {
+    const fd = new FormData();
+    fd.append("text", text);
+    fd.append("contextTaskIds", JSON.stringify(lastContextTaskIds.value));
+    fd.append("file", selectedFile.value);
+    payload = fd;
+  }
+
+  const [data, error] = await request("post", "/ai/command", payload);
+  clearSelectedFile();
   isLoading.value = false;
 
   if (error) {
@@ -284,6 +332,7 @@ const handleResponse = (data) => {
     const msg = `🚫 ${n} pending task${n !== 1 ? "s" : ""} cancel ho gaye.`;
     addMessage("ai", msg);
     toast?.success(msg.replace(/[^\w\s!]/g, "").trim());
+    window.dispatchEvent(new CustomEvent("tasks:changed", { detail: { source: "chat", kind: "cancelPending" } }));
     return;
   }
 
@@ -292,6 +341,7 @@ const handleResponse = (data) => {
     const msg = `▶️ ${n} pending task${n !== 1 ? "s" : ""} start ho gaye — ab in par kaam karo.`;
     addMessage("ai", msg);
     toast?.success(msg.replace(/[^\w\s!]/g, "").trim());
+    window.dispatchEvent(new CustomEvent("tasks:changed", { detail: { source: "chat", kind: "startPending" } }));
     return;
   }
 
@@ -351,6 +401,7 @@ const handleResponse = (data) => {
   }
 
   if (responseData?._id) {
+    lastContextTaskIds.value = [responseData._id].filter(Boolean);
     const msgMap = {
       in_progress: "▶️ Task start ho gaya! Kaam shuru karo 💪",
       cancelled: "🚫 Task cancel ho gaya.",
@@ -360,6 +411,7 @@ const handleResponse = (data) => {
     const msg = msgMap[responseData.status] || `✅ ${data.message || "Ho gaya!"}`;
     addMessage("ai", msg);
     toast?.success(msg.replace(/[^\w\s!]/g, "").trim());
+    window.dispatchEvent(new CustomEvent("tasks:changed", { detail: { source: "chat", taskId: responseData._id } }));
     return;
   }
 
@@ -763,6 +815,48 @@ const doExport = (format) => {
   transition:
     transform 0.15s,
     box-shadow 0.15s;
+}
+
+.attach-fab {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #fff;
+  color: #475569;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+}
+
+.file-chip-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 14px 10px;
+  font-size: 0.72rem;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chip-remove {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 0.72rem;
 }
 
 .send-fab:hover:not(:disabled) {

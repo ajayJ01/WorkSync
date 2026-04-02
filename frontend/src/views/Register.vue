@@ -43,12 +43,10 @@
 <script setup>
 import { ref, getCurrentInstance } from 'vue';
 import { request } from '@/services/apiWrapper';
-import { useRouter } from 'vue-router';
 
 const { appContext } = getCurrentInstance();
 const toast = appContext.config.globalProperties.$toast;
 
-const router = useRouter();
 const name = ref('');
 const email = ref('');
 const password = ref('');
@@ -74,7 +72,7 @@ const handleRegister = async () => {
     } else {
       toast.success(data.message || 'Registered successfully!');
     }
-  } catch (err) {
+  } catch (_err) {
     toast.error('Unexpected error occurred. Please try again later.');
   }
 };

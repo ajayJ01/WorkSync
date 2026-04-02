@@ -6,11 +6,14 @@ const PERMISSIONS = {
     "submitTask",
     "exportTasks",
     "updateTaskDueDate",
+    "updateTaskTitle",
     "extendPendingDueDate",
+    "updateTaskFile",
   ],
   admin: [
     "getTasks",
     "createTask",
+    "createSimpleTask",
     "startTask",
     "startPendingTasks",
     "submitTask",
@@ -18,7 +21,10 @@ const PERMISSIONS = {
     "cancelPendingTasks",
     "updateTask",
     "updateTaskDueDate",
+    "updateTaskTitle",
     "extendPendingDueDate",
+    "assignTask",
+    "updateTaskFile",
     "verifyTask",
     "exportTasks"
   ]

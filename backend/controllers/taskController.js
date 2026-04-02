@@ -2,6 +2,25 @@ const Task = require("../models/Task");
 const { success, error, notFound, conflict } = require("../utils/response");
 const { uploadFile } = require("../utils/fileUpload");
 
+function parseRangeBoundary(input, isEnd = false) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+
+  // Date-only query should be interpreted in LOCAL timezone day boundaries.
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    return isEnd
+      ? new Date(y, mo, d, 23, 59, 59, 999)
+      : new Date(y, mo, d, 0, 0, 0, 0);
+  }
+
+  const dt = new Date(raw);
+  return isNaN(dt.getTime()) ? null : dt;
+}
+
 exports.createTask = async (req, reply) => {
   try {
     if (!req.isMultipart()) {
@@ -163,6 +182,7 @@ exports.getAllTasks = async (req, reply) => {
       limit = 10,
       search,
       status,
+      statusIn,
       from,
       to,
       assignedTo,
@@ -189,14 +209,25 @@ exports.getAllTasks = async (req, reply) => {
     if (status) {
       filter.$and.push({ status });
     }
+    if (statusIn) {
+      const list = String(statusIn)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length) filter.$and.push({ status: { $in: list } });
+    }
 
     if (from && to) {
-      filter.$and.push({
-        dueDate: {
-          $gte: new Date(from),
-          $lte: new Date(to + "T23:59:59"),
-        },
-      });
+      const fromDate = parseRangeBoundary(from, false);
+      const toDate = parseRangeBoundary(to, true);
+      if (fromDate && toDate) {
+        filter.$and.push({
+          dueDate: {
+            $gte: fromDate,
+            $lte: toDate,
+          },
+        });
+      }
     }
 
     if (assignedTo) {
@@ -230,7 +261,7 @@ exports.getAllTasks = async (req, reply) => {
 exports.getMyTasks = async (req, reply) => {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 10, search, status, from, to } = req.query;
+    const { page = 1, limit = 10, search, status, statusIn, from, to } = req.query;
     const skip = (page - 1) * limit;
 
     const filter = {
@@ -251,14 +282,25 @@ exports.getMyTasks = async (req, reply) => {
     if (status) {
       andConditions.push({ status });
     }
+    if (statusIn) {
+      const list = String(statusIn)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length) andConditions.push({ status: { $in: list } });
+    }
 
     if (from && to) {
-      andConditions.push({
-        dueDate: {
-          $gte: new Date(from),
-          $lte: new Date(to + "T23:59:59"),
-        },
-      });
+      const fromDate = parseRangeBoundary(from, false);
+      const toDate = parseRangeBoundary(to, true);
+      if (fromDate && toDate) {
+        andConditions.push({
+          dueDate: {
+            $gte: fromDate,
+            $lte: toDate,
+          },
+        });
+      }
     }
 
     if (andConditions.length > 0) {

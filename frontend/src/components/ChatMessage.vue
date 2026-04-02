@@ -28,6 +28,19 @@
         </button>
       </div>
 
+      <div v-if="message.candidates && message.candidates.length" class="candidates-row">
+        <div class="candidate-header text-muted small mb-1">Options:</div>
+        <button
+          v-for="(c, idx) in message.candidates"
+          :key="c.taskId"
+          type="button"
+          class="btn-candidate"
+          @click="$emit('select-candidate', c)"
+        >
+          {{ idx + 1 }}. {{ c.title }} <span class="text-muted">({{ statusLabel(c.status) }})</span>
+        </button>
+      </div>
+
       <div v-if="message.tasks && message.tasks.length" class="task-cards">
         <div
           v-for="task in message.tasks.slice(0, 6)"
@@ -231,6 +244,32 @@ const formatDate = (dateStr) => {
 .btn-export:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgb(15 23 42 / 0.08);
+}
+
+.candidates-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.btn-candidate {
+  background: #f8fafc;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.btn-candidate:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  transform: translateY(-1px);
 }
 
 .task-cards {

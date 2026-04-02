@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { isAiUnavailable, markAiUnavailable } = require("./aiAvailability");
 
 // ✅ JSON extractor — AI ke messy output se clean JSON nikalta hai
 function extractJSON(text) {
@@ -32,35 +33,47 @@ async function runAgent(userInput) {
   if (!process.env.GROQ_API_KEY?.trim()) {
     return null;
   }
+  if (isAiUnavailable()) {
+    return null;
+  }
 
   const prompt = `
 You are a task management AI assistant. You understand English and Hinglish (Hindi+English mix).
 
-Your job: Convert user input into a JSON tool call.
+Your job: Convert user input into a JSON tool call with confidence and clarification hints.
 
 ALLOWED TOOLS and when to use them:
 - getTasks       → user wants to see/fetch/list tasks (e.g. "tasks dikhao", "show my tasks", "list karo")
+- createSimpleTask → quick task create without file (chat-only lightweight create)
+- updateTaskFile   → upload/replace attachment for one task (taskId required or inferred from context)
+- updateTaskTitle  → update title for one task (taskId required or inferred from due-date/context)
+- assignTask     → admin assigns a task to a user (name/email) for one task
 - startTask      → user wants to start a task (e.g. "task start karo", "begin task")
 - cancelTask     → user wants to cancel ONE task by ID (e.g. mentions MongoDB id)
 - cancelPendingTasks → cancel ALL pending tasks visible to user (e.g. "pending tasks cancel karo", "saare pending band karo", "inko cancel karo")
 - startPendingTasks → start ALL pending tasks visible to user (e.g. "pending tasks start karo", "saare pending shuru karo")
-- updateTaskDueDate → change due date for ONE task; input must include taskId and dueDate as ISO string YYYY-MM-DD or parseable date
-- extendPendingDueDate → add N days to due date when exactly ONE pending task exists for user; input: {"days":1}
+- updateTaskDueDate → change due date for ONE task; input must include taskId and EITHER 'dueDate' as string OR 'incrementDays' as an integer to add days (e.g. {"taskId":"...","incrementDays":1}).
+- extendPendingDueDate → use ONLY if the user says "saari pending" or "pending task ki due date" without any specific task identifier. Input: {"days":1}
 - verifyTask     → admin wants to verify/approve a task (e.g. "task verify karo", "approve karo")
 - exportTasks    → user wants to export tasks (e.g. "export karo", "download tasks")
 - unknown        → input is unclear, abusive, or not related to tasks
 
 IMPORTANT RULES:
-- If user wants to CREATE / ADD a new task or SUBMIT a task → return {"tool":"unknown","input":{}} (never return createTask or submitTask as tool names)
+- IMPORTANT: Text inside quotes (like "Created via chat") is just a title or description. Do NOT use verbs inside quotes to classify the intent. Focus ONLY on the main action of the sentence (e.g. 'assign', 'update', 'cancel').
+- If user wants CREATE / ADD task without file/attachment → use createSimpleTask and extract title/description/dueDate if present
+- If user asks create with file/attachment, still use createSimpleTask (file comes from attached upload in chat)
+- submitTask via chat is NOT allowed (file flow) → return unknown
 - If user mentions a task number or ID, extract it as taskId in input
-- If input is unclear or abusive → always return unknown tool
 - Return ONLY raw JSON, no explanation, no markdown
 
-OUTPUT FORMAT:
-{"tool":"<toolName>","input":{"taskId":"<id_if_mentioned>"}}
+OUTPUT FORMAT (STRICT JSON ONLY):
+{"tool":"<toolName>","input":{"taskId":"<id_if_mentioned>"},"confidence":0.0,"needs_clarification":false,"clarification_question":""}
 
-If no taskId mentioned:
-{"tool":"<toolName>","input":{}}
+Rules for confidence:
+- 0.85+ when user intent is explicit and unambiguous
+- 0.55-0.84 when intent seems likely but some fields missing
+- <0.55 when unsure / ambiguous
+- If ambiguous, set needs_clarification=true and ask one short question in clarification_question
 
 EXAMPLES:
 Input: "tasks dikhao" → {"tool":"getTasks","input":{}}
@@ -70,6 +83,10 @@ Input: "saale tasks fetch karo" → {"tool":"getTasks","input":{}}
 Input: "pending tasks cancel karo" → {"tool":"cancelPendingTasks","input":{}}
 Input: "inko cancel krdo" → {"tool":"cancelPendingTasks","input":{}}
 Input: "pending tasks start karo" → {"tool":"startPendingTasks","input":{}}
+Input: "new task banao kal report bhejni hai" → {"tool":"createSimpleTask","input":{"title":"Report bhejni hai","description":"Created via chat","dueDate":"<if found>"}}
+Input: "isko test user ko assign karo" → {"tool":"assignTask","input":{"taskId":"<from context/id>","assigneeQuery":"test user"}}
+Input: "jiski due 1 Apr hai usme attached file upload karo" → {"tool":"updateTaskFile","input":{"taskId":"<from context/id>"}}
+Input: "task jiski due 1 Apr 3pm hai uska title update karo ki fix bugs" → {"tool":"updateTaskTitle","input":{"taskId":"<from context/id>","title":"fix bugs"}}
 Input: "pending task ki due 2 din badhao" → {"tool":"extendPendingDueDate","input":{"days":2}}
 Input: "due date 2026-05-01 ko set karo task abc..." → {"tool":"updateTaskDueDate","input":{"taskId":"<24hex>","dueDate":"2026-05-01"}}
 Input: "fuck" → {"tool":"unknown","input":{}}
@@ -110,8 +127,18 @@ Input: "${userInput}"
       return null;
     }
 
-    return parsed;
+    if (parsed) {
+      if (typeof parsed.confidence !== "number") parsed.confidence = parsed.tool === "unknown" ? 0.2 : 0.7;
+      if (typeof parsed.needs_clarification !== "boolean") parsed.needs_clarification = false;
+      if (typeof parsed.clarification_question !== "string") parsed.clarification_question = "";
+      return parsed;
+    }
+
+    return null;
   } catch (err) {
+    if (err?.response?.status === 429) {
+      markAiUnavailable(120 * 1000);
+    }
     console.error("❌ AI ERROR:", err.message);
     return null;
   }

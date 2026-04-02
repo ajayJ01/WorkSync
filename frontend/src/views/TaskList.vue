@@ -379,7 +379,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, getCurrentInstance, nextTick, computed, watch } from "vue";
+import { ref, reactive, onMounted, onUnmounted, getCurrentInstance, nextTick, computed, watch } from "vue";
 import { request } from "@/services/apiWrapper";
 import Multiselect from "vue-multiselect";
 import "vue-multiselect/dist/vue-multiselect.css";
@@ -419,6 +419,8 @@ const filters = reactive({
   dateRange: '',
   assignedTo: []
 });
+let autoRefreshTimer = null;
+const onTasksChanged = () => fetchTasks(currentPage.value);
 
 const openVerifyModal = (task) => {
   selectedTask.value = {
@@ -438,7 +440,7 @@ const handleVerifySubmission = async (status) => {
     return;
   }
   verifying.value = true;
-  const [data, error] = await request("put", `/tasks/${selectedTask.value._id}/admin-task-verify`, {
+  const [_data, error] = await request("put", `/tasks/${selectedTask.value._id}/admin-task-verify`, {
     status,
     remark: status === 'rejected' ? adminRemark.value.trim() : "",
   });
@@ -746,6 +748,19 @@ onMounted(async () => {
       editingTask.value = null;
     });
   }
+
+  window.addEventListener("tasks:changed", onTasksChanged);
+
+  autoRefreshTimer = setInterval(() => {
+    // Real-time feel for cross-user updates without manual refresh
+    if (!document.hidden) fetchTasks(currentPage.value);
+  }, 12000);
+
+});
+
+onUnmounted(() => {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  window.removeEventListener("tasks:changed", onTasksChanged);
 });
 
 watch(

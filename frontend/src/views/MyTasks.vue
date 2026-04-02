@@ -238,7 +238,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch } from "vue";
+import { ref, reactive, onMounted, onUnmounted, watch } from "vue";
 import { request } from "@/services/apiWrapper";
 import { useExport } from "@/composables/useExport";
 import BasePagination from "@/components/BasePagination.vue";
@@ -269,11 +269,13 @@ const filters = reactive({
     status: '',
     dateRange: '',
 });
+let autoRefreshTimer = null;
+const onTasksChanged = () => fetchTasks();
 
 const openCompleteModal = (task) => {
     selectedTask.value = task;
-    completionData.notes = '';
-    completionData.file = null;
+    completionData.value.notes = '';
+    completionData.value.file = null;
     showBootstrapModal(completeModal);
 };
 
@@ -418,9 +420,18 @@ const handleExportPDF = () => {
 
 onMounted(() => {
     fetchTasks();
+    window.addEventListener("tasks:changed", onTasksChanged);
+    autoRefreshTimer = setInterval(() => {
+        if (!document.hidden) fetchTasks();
+    }, 12000);
 });
 
 watch(filters, fetchTasks, { deep: true });
+
+onUnmounted(() => {
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    window.removeEventListener("tasks:changed", onTasksChanged);
+});
 </script>
 
 <style scoped>
