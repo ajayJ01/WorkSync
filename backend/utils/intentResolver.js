@@ -3,6 +3,78 @@ const { parseDueDateFromText } = require("./parseDueDate");
 const { escapeRegexTruncated } = require("./regexSafe");
 const { extractTitleHintVariants } = require("./chatTitleHint");
 
+function squeezeTitleKey(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function levenshteinLimited(a, b, maxDist = 2) {
+  if (a === b) return 0;
+  const al = a.length;
+  const bl = b.length;
+  if (Math.abs(al - bl) > maxDist) return maxDist + 1;
+  const prev = new Array(bl + 1);
+  const curr = new Array(bl + 1);
+  for (let j = 0; j <= bl; j += 1) prev[j] = j;
+  for (let i = 1; i <= al; i += 1) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= bl; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    for (let j = 0; j <= bl; j += 1) prev[j] = curr[j];
+  }
+  return prev[bl];
+}
+
+/** "kar do" vs title "krdo" — regex fail; squeeze + edit distance */
+function titleHintMatchScore(titleSq, needleSq) {
+  if (!titleSq || !needleSq) return 999;
+  if (titleSq === needleSq) return 0;
+  if (needleSq.length >= 4 && titleSq.includes(needleSq)) return 1;
+  if (titleSq.length >= 4 && needleSq.includes(titleSq)) return 2;
+  const d = levenshteinLimited(titleSq, needleSq, 3);
+  if (d <= 2) return 3 + d;
+  return 999;
+}
+
+/**
+ * @param {string} userId
+ * @param {string[]} hints — e.g. from extractTitleHintVariants
+ * @param {{ limit?: number, maxScan?: number }} opts
+ */
+async function fuzzyTasksByTitleHints(userId, hints, opts = {}) {
+  const limit = opts.limit ?? 6;
+  const maxScan = opts.maxScan ?? 100;
+  const visibility = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
+  const needles = [...new Set((hints || []).map(squeezeTitleKey).filter((n) => n.length >= 2))];
+  if (!needles.length) return [];
+
+  const tasks = await Task.find(visibility)
+    .select("_id title status dueDate")
+    .sort({ updatedAt: -1 })
+    .limit(maxScan)
+    .lean();
+
+  const scored = [];
+  for (const t of tasks) {
+    const ts = squeezeTitleKey(t.title);
+    if (!ts) continue;
+    let best = 999;
+    for (const n of needles) {
+      const s = titleHintMatchScore(ts, n);
+      if (s < best) best = s;
+    }
+    if (best <= 6) scored.push({ task: t, score: best });
+  }
+  scored.sort((a, b) => a.score - b.score);
+  return scored.slice(0, limit).map((x) => x.task);
+}
+
 const SUPPORTED_TOOLS = new Set([
   "getTasks",
   "createSimpleTask",
@@ -112,4 +184,6 @@ module.exports = {
   needsClarification,
   retrieveTaskCandidates,
   buildClarificationMessage,
+  fuzzyTasksByTitleHints,
+  squeezeTitleKey,
 };

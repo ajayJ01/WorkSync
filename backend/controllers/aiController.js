@@ -19,6 +19,7 @@ const {
   needsClarification,
   retrieveTaskCandidates,
   buildClarificationMessage,
+  fuzzyTasksByTitleHints,
 } = require("../utils/intentResolver");
 const { setDraft, getDraft, clearDraft } = require("../utils/chatDraftContext");
 const { getFocusedAssignee, clearFocusedAssignee } = require("../utils/chatEntityContext");
@@ -92,6 +93,25 @@ function isIdentityQuery(text) {
       lower
     )
   );
+}
+
+/** AI / user ke baare mein — address, phone, location; tasks list nahi */
+function isAssistantMetaQuery(text) {
+  const lower = String(text || "").toLowerCase();
+  const asksYou =
+    /(aapka|aapke|aap ki|aapki|tumhara|tumhari|your|you are|who are you|kaun ho|kya naam|what'?s your name|what is your name|mera naam|my name)/i.test(
+      lower
+    );
+  const metaTopic =
+    /(address|adress|location|phone|mobile|whatsapp|telegram|office|pata|ghar|city|country|postal|pin\s*code|zip\s*code|email|e-?mail|naam|name|age|worksheet|work[\s-]*sheet)/i.test(
+      lower
+    );
+  const taskListCue =
+    /\b(tasks?|task list|kaam|pending|due|assign|export|dikhao|dikha do|dikha|show\s+(me\s+)?(all\s+)?tasks|list\s+(all\s+)?tasks)\b/i.test(
+      lower
+    );
+  if (taskListCue) return false;
+  return asksYou && metaTopic;
 }
 
 function isSmallTalk(text) {
@@ -468,6 +488,66 @@ function inferStatusActionTool(text) {
   return null;
 }
 
+/** "jiska title X hai ... cancel" = title se identify, title update nahi */
+function isJiskaTitleReferenceWithCancel(text) {
+  const lower = String(text || "").toLowerCase();
+  if (!/\bcancel\b/i.test(lower)) return false;
+  return /\b(jiska|jiski|jinke)\s+title\b/i.test(lower);
+}
+
+function hasStrongAssignIntent(text) {
+  const lower = String(text || "").toLowerCase();
+  if (/\b(assign|reassign|asign|saup|allot)\b/i.test(lower)) return true;
+  if (/\bko\s+(assign|reassign|send|bhej|bhejo|forward)\b/i.test(lower)) return true;
+  if (
+    /\b(send|bhej|bhejo|forward|transfer)\b/i.test(lower) &&
+    /\b(kar|karo|krdo|kardo|kr|do|de|dena)\b/i.test(lower)
+  )
+    return true;
+  return false;
+}
+
+function textHasDueDateTaskRef(t) {
+  const s = String(t || "").toLowerCase();
+  return (
+    /\b(jiski|jiska|jiske)\s+due\s*(date)?\b/i.test(s) ||
+    /\b(jiski|jiska)\s+duty\b/i.test(s) ||
+    /\btasks?\s+jiski\s+due\b/i.test(s) ||
+    /\bjiski\s+due\s+date\b/i.test(s)
+  );
+}
+
+function extractAssigneeForDueRefSend(rawText, normText) {
+  const tryOne = (s) => {
+    if (!s) return "";
+    const raw = String(s);
+    const m1 = raw.match(
+      /(?:hai|hai\.)\s+(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign)\b/i
+    );
+    if (m1?.[1]) return m1[1].replace(/\s+/g, " ").trim().slice(0, 120);
+    const m2 = raw.match(
+      /\b(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign)\b/i
+    );
+    if (m2?.[1]) return m2[1].replace(/\s+/g, " ").trim().slice(0, 120);
+    return "";
+  };
+  return tryOne(rawText) || tryOne(normText);
+}
+
+/** "jiski due ... cancel" — sirf clear cancel verbs; assign/send ke saath overlap na ho */
+function isDueDateReferenceCancelIntent(text) {
+  const lower = String(text || "").toLowerCase();
+  if (hasStrongAssignIntent(text)) return false;
+  const cancelVerb =
+    /\bcancel\b/i.test(lower) ||
+    /\bband\s+(karo|kardo|kar do|kar de|karna)\b/i.test(lower) ||
+    /\b(rok\s*do|mita\s*do|mitao\s*do|khatam\s*(karo|kardo|kar do))\b/i.test(lower);
+  if (!cancelVerb) return false;
+  if (/\b(don'?t|do not|mat|na)\s+cancel\b/i.test(lower)) return false;
+  if (/\b(saare|saari|sab|all)\s+pending\b/i.test(lower) && /\btasks?\b/i.test(lower)) return false;
+  return textHasDueDateTaskRef(lower);
+}
+
 function extractAssignInput(text) {
   const raw = String(text || "").trim();
   if (!raw) return {};
@@ -607,6 +687,13 @@ async function resolveTaskIdFromText(userId, text, rawText = null) {
     const active = dedup.filter((t) => t.status !== "cancelled" && t.status !== "verified");
     if (active.length === 1) return String(active[0]._id);
   }
+
+  const fuzzyList = await fuzzyTasksByTitleHints(userId, variants, { limit: 8, maxScan: 100 });
+  if (fuzzyList.length === 1) return String(fuzzyList[0]._id);
+  if (fuzzyList.length > 1) {
+    const activeF = fuzzyList.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+    if (activeF.length === 1) return String(activeF[0]._id);
+  }
   return null;
 }
 
@@ -636,6 +723,18 @@ async function suggestTaskChoicesFromTitle(userId, text, limit = 3, rawText = nu
     out.push(t);
     if (out.length >= limit) break;
   }
+
+  if (!out.length && variants.length) {
+    const fuzzy = await fuzzyTasksByTitleHints(userId, variants, { limit: Math.max(limit * 3, 12), maxScan: 100 });
+    for (const t of fuzzy) {
+      const id = String(t._id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      out.push(t);
+      if (out.length >= limit) break;
+    }
+  }
+
   return out.map((t) => ({
     taskId: String(t._id),
     title: t.title,
@@ -723,6 +822,7 @@ ANALYTICAL → reply "analytical":
 - "kitne hain", "how many", counts, stats
 - "kya status hai", "progress kya hai"
 - Questions about numbers/info only
+- Assistant / bot ke baare mein: address, phone, location, office, "aapka naam", "your email", WorkSync kya hai (tasks list NAHI)
 
 CRITICAL: "haan", "yes", "pakka", "theek hai" → ALWAYS "action" (confirmations)
 CRITICAL: "X tasks dikhao/dikha" → ALWAYS "action"
@@ -1181,7 +1281,7 @@ exports.handleAI = async (req, reply) => {
       return await executeTool("getTasks", { assignedTo: String(users[0]._id) }, req, reply);
     }
 
-    if (isIdentityQuery(text) || isUserTaskCountQuery(text)) {
+    if (isIdentityQuery(text) || isUserTaskCountQuery(text) || isAssistantMetaQuery(text)) {
       const answer = await askAnalyst(text, user.role, user.id);
       return reply.send({ success: true, type: "analyst", message: answer });
     }
@@ -1222,6 +1322,71 @@ exports.handleAI = async (req, reply) => {
         needs_clarification: false,
       });
       source = "status-list-not-cancel";
+    }
+
+    if (textHasDueDateTaskRef(text) && hasStrongAssignIntent(text)) {
+      const tid = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
+      const rawLine = String(req.aiRawUserText || text || "");
+      const assigneeQuery =
+        extractAssigneeForDueRefSend(rawLine, text) || extractAssignInput(rawLine).assigneeQuery || "";
+      if (tid && assigneeQuery) {
+        aiRes = sanitizeAgentResult({
+          tool: "assignTask",
+          input: { taskId: tid, assigneeQuery: String(assigneeQuery).slice(0, 120) },
+          confidence: 0.91,
+          needs_clarification: false,
+        });
+        source = "due-ref-assign-coerce";
+      }
+    }
+
+    {
+      const lowerT = String(text || "").toLowerCase();
+      const hints = extractTitleHintVariants(text, req.aiRawUserText);
+      const wantsCancelWord = /\b(cancel|band|mita|mitao|khatam|rok)\b/i.test(lowerT);
+      const hasTitleRef =
+        /\b(jiska|jiski|jinke)\s+title\b/i.test(lowerT) || /\btasks?\s+jiska\s+title\b/i.test(lowerT);
+      const bulkCancel =
+        /\b(pending|saare|saari|sab|all|inko|inho|ye sab)\b/i.test(lowerT) &&
+        /\btasks?\b/i.test(lowerT);
+      const wrongToolForTitleCancel =
+        !aiRes ||
+        aiRes.tool === "unknown" ||
+        (aiRes.tool === "cancelTask" && !isValidObjectId(aiRes?.input?.taskId)) ||
+        (aiRes.tool === "updateTaskTitle" && isJiskaTitleReferenceWithCancel(text));
+      const canCoerceCancel =
+        hints.length > 0 &&
+        wantsCancelWord &&
+        hasTitleRef &&
+        !bulkCancel &&
+        !hasStrongAssignIntent(text) &&
+        wrongToolForTitleCancel;
+
+      if (canCoerceCancel) {
+        const tid = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
+        if (tid) {
+          aiRes = sanitizeAgentResult({
+            tool: "cancelTask",
+            input: { taskId: tid },
+            confidence: 0.9,
+            needs_clarification: false,
+          });
+          source = "title-cancel-coerce";
+        }
+      }
+    }
+
+    if (isDueDateReferenceCancelIntent(text)) {
+      const tid = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
+      if (tid) {
+        aiRes = sanitizeAgentResult({
+          tool: "cancelTask",
+          input: { taskId: tid },
+          confidence: 0.93,
+          needs_clarification: false,
+        });
+        source = "due-ref-cancel-coerce";
+      }
     }
 
     const forcedStatusTool = inferStatusActionTool(text);

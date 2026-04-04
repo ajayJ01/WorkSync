@@ -56,7 +56,7 @@ ALLOWED TOOLS and when to use them:
 - extendPendingDueDate → use ONLY if the user says "saari pending" or "pending task ki due date" without any specific task identifier. Input: {"days":1}
 - verifyTask     → admin wants to verify/approve a task (e.g. "task verify karo", "approve karo")
 - exportTasks    → user wants to export tasks (e.g. "export karo", "download tasks", "pending tasks export"); put filters in input: {"status":"pending"} when user says pending/verified/cancelled etc.
-- unknown        → input is unclear, abusive, or not related to tasks
+- unknown        → input is unclear, abusive, or not related to tasks (e.g. bot's home address, phone number, physical office — NOT getTasks)
 
 IMPORTANT RULES:
 - IMPORTANT: Text inside quotes (like "Created via chat") is just a title or description. Do NOT use verbs inside quotes to classify the intent. Focus ONLY on the main action of the sentence (e.g. 'assign', 'update', 'cancel').
@@ -91,6 +91,11 @@ Input: "pending task ki due 2 din badhao" → {"tool":"extendPendingDueDate","in
 Input: "due date 2026-05-01 ko set karo task abc..." → {"tool":"updateTaskDueDate","input":{"taskId":"<24hex>","dueDate":"2026-05-01"}}
 Input: "fuck" → {"tool":"unknown","input":{}}
 Input: "random bakwaas" → {"tool":"unknown","input":{}}
+Input: "aapka address kya hai" → {"tool":"unknown","input":{}}
+Input: "what is your phone number" → {"tool":"unknown","input":{}}
+Input: "jiski due date 4 april hai usko cancel kar do" → {"tool":"cancelTask","input":{}}
+Input: "task jiska title krdo hai cancel mark karo" → {"tool":"cancelTask","input":{}}
+Input: "jiski due 4 april hai vah test user ko send kar do" → {"tool":"assignTask","input":{"assigneeQuery":"test user"}}
 
 Input: "${userInput}"
 `;

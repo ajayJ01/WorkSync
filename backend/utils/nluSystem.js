@@ -68,6 +68,11 @@ async function initNLU() {
   manager.addDocument('en', 'khatam karo isko', 'cancelTask');
   manager.addDocument('en', 'stop the task', 'cancelTask');
   manager.addDocument('en', 'rok do', 'cancelTask');
+  manager.addDocument('en', 'jiski due date hai usko cancel kardo', 'cancelTask');
+  manager.addDocument('en', 'task jiski due april hai cancel kar do', 'cancelTask');
+  manager.addDocument('en', 'jiska title wala task cancel karo', 'cancelTask');
+  manager.addDocument('en', 'jiski due date hai test user ko assign kardo', 'assignTask');
+  manager.addDocument('en', 'due april wali task send karo test user ko', 'assignTask');
 
   // 8. cancelPendingTasks
   manager.addDocument('en', 'saare pending cancel karo', 'cancelPendingTasks');

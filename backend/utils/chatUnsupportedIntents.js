@@ -36,12 +36,23 @@ function isSubmitTaskChatIntent(text) {
   return submitVerb && fileCue;
 }
 
+/** done/complete ke liye "mark" — sirf tab, jab cancel na ho ("cancel mark" = false positive) */
+function wantsMarkAsComplete(lower) {
+  if (/\bcancel\b/i.test(lower)) return false;
+  return (
+    /(complete|completed|done|finish|पूर्ण|खत्म|pura|poora)/i.test(lower) ||
+    /\bmark\s+(as\s+)?(complete|completed|done|verified|finish)/i.test(lower) ||
+    /\bmark\s+done\b/i.test(lower) ||
+    /\bmark\b.{0,32}\b(complete|completed|done|verified|finish)\b/i.test(lower)
+  );
+}
+
 /** "pending complete" — app mein = start + baad mein submit (verify admin) */
 function isMarkCompletePendingIntent(text) {
   const lower = (text || "").toLowerCase();
   if (!hasTaskWord(lower)) return false;
   if (!/(pending|pend)/i.test(lower)) return false;
-  return /(complete|completed|done|finish|mark|पूर्ण|खत्म|pura|poora)/i.test(lower);
+  return wantsMarkAsComplete(lower);
 }
 
 /** Started / in-progress ko "complete" — actually Submit (+ admin verify) */
@@ -49,7 +60,8 @@ function isCompleteStartedOrInProgressIntent(text) {
   const lower = (text || "").toLowerCase();
   if (!hasTaskWord(lower)) return false;
   const wantsDone =
-    /(complete|completed|done|finish|mark|पूर्ण|खत्म|pura|poora|band karo|close)/i.test(lower);
+    wantsMarkAsComplete(lower) ||
+    /(band karo|close)/i.test(lower);
   const wasStarted =
     /(started|start ho|already start|in progress|in_progress|progress|chalu|chaloo|shuru|running|begin)/i.test(
       lower
@@ -62,7 +74,8 @@ function isGenericMarkDoneIntent(text) {
   const lower = (text || "").toLowerCase();
   if (!hasTaskWord(lower)) return false;
   const wantsDone =
-    /(complete|completed|done|finish|mark|status\s+done|status\s+complete|band karo|close)/i.test(lower);
+    wantsMarkAsComplete(lower) ||
+    /(status\s+done|status\s+complete|band karo|close)/i.test(lower);
   if (!wantsDone) return false;
   return /(status|task|uska|isko|jiska|jiski)/i.test(lower);
 }

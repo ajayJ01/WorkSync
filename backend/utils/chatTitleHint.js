@@ -43,6 +43,16 @@ function extractTitleHintVariants(normalizedText, rawText = null) {
     seen.add(key);
     out.push(h);
   }
+  const squeezed = [];
+  for (const h of out) {
+    const sq = String(h).replace(/\s+/g, "").trim();
+    if (sq.length < 3) continue;
+    const k = sq.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k);
+    squeezed.push(sq);
+  }
+  out.push(...squeezed);
   return out;
 }
 

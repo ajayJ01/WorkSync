@@ -106,24 +106,35 @@
               v-model="inputText"
               type="text"
               class="chat-field"
-              placeholder="Message…"
-              :disabled="isLoading || !!pendingConfirm"
+              :placeholder="voiceSessionActive ? 'Sun raha hoon… (mic band karne ke liye dubara dabao)' : 'Message…'"
+              :disabled="isLoading || !!pendingConfirm || voiceSessionActive"
               maxlength="300"
               @keydown.enter="sendMessage"
             />
             <button
               type="button"
               class="attach-fab"
-              :disabled="isLoading || !!pendingConfirm"
+              :disabled="isLoading || !!pendingConfirm || voiceSessionActive"
               title="Attach file"
               @click="openFilePicker"
             >
               <i class="bi bi-paperclip"></i>
             </button>
             <button
+              v-if="speechSupported"
+              type="button"
+              class="mic-fab"
+              :class="{ 'mic-fab--listening': voiceSessionActive }"
+              :disabled="!!pendingConfirm || !!selectedFile"
+              :title="voiceSessionActive ? 'Mic band karo' : 'Mic on — bolte raho, rukne par bhej dunga'"
+              @click="toggleVoice"
+            >
+              <i :class="voiceSessionActive ? 'bi bi-stop-fill' : 'bi bi-mic-fill'" />
+            </button>
+            <button
               type="button"
               class="send-fab"
-              :disabled="isLoading || (!inputText.trim() && !selectedFile) || !!pendingConfirm"
+              :disabled="isLoading || voiceSessionActive || (!inputText.trim() && !selectedFile) || !!pendingConfirm"
               title="Send"
               @click="sendMessage"
             >
@@ -152,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, nextTick, getCurrentInstance, onMounted, watch } from "vue";
+import { ref, computed, nextTick, getCurrentInstance, onMounted, onUnmounted, watch } from "vue";
 import { request } from "@/services/apiWrapper";
 import ChatMessage from "@/components/ChatMessage.vue";
 import { useExport } from "@/composables/useExport";
@@ -180,6 +191,17 @@ const fileInputRef = ref(null);
 /** Last AI task list — backend "iski ..." resolve karne ke liye */
 const lastContextTaskIds = ref([]);
 
+/** Chrome/Edge: Web Speech API — HTTPS ya localhost par mic permission */
+const speechSupported = computed(
+  () =>
+    typeof window !== "undefined" &&
+    !!(window.SpeechRecognition || window.webkitSpeechRecognition)
+);
+
+/** Mic session: on until user clicks mic again (continuous listen + send on each pause) */
+const voiceSessionActive = ref(false);
+let voiceRecognition = null;
+
 const quickHints = [
   "Kitne users hain? 👥",
   "Tasks dikhao 📋",
@@ -206,6 +228,7 @@ const toggleChat = () => {
 };
 
 const clearChat = () => {
+  if (voiceSessionActive.value) stopVoiceSession();
   messages.value = [];
   pendingConfirm.value = null;
   pendingExport.value = null;
@@ -312,6 +335,120 @@ const sendMessage = async () => {
 
   handleResponse(data);
 };
+
+function stopVoiceSession() {
+  voiceSessionActive.value = false;
+  const rec = voiceRecognition;
+  voiceRecognition = null;
+  try {
+    rec?.stop();
+  } catch {
+    /* ignore */
+  }
+}
+
+function attachVoiceRecognitionHandlers(rec) {
+  rec.onresult = (event) => {
+    if (voiceRecognition !== rec) return;
+    /* AI jawab aa raha ho to naya final ignore — warna overlap / double-send */
+    if (isLoading.value) return;
+
+    let newFinal = "";
+    let interim = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const r = event.results[i];
+      if (r.isFinal) newFinal += r[0]?.transcript || "";
+      else interim += r[0]?.transcript || "";
+    }
+    const interimTrim = interim.trim();
+    const finalTrim = newFinal.trim().slice(0, 300);
+    if (interimTrim || finalTrim) {
+      inputText.value = `${finalTrim}${finalTrim && interimTrim ? " " : ""}${interimTrim}`.slice(0, 300);
+    }
+    if (!finalTrim) return;
+    inputText.value = finalTrim;
+    sendMessage();
+  };
+
+  rec.onerror = (e) => {
+    if (voiceRecognition !== rec) return;
+    if (e.error === "aborted" || e.error === "no-speech") return;
+    stopVoiceSession();
+    let msg = "Voice input fail ho gaya.";
+    if (e.error === "not-allowed") {
+      msg = "Mic allow karo — browser site settings se.";
+    }
+    toast?.error?.(msg);
+  };
+
+  rec.onend = () => {
+    /* Purane session ka delayed onend nayi listening null na kare */
+    if (voiceRecognition !== rec) return;
+    voiceRecognition = null;
+    if (!voiceSessionActive.value) return;
+    if (isLoading.value || pendingConfirm.value) return;
+    nextTick(() => tryStartVoiceRecognition());
+  };
+}
+
+function tryStartVoiceRecognition() {
+  if (
+    !speechSupported.value ||
+    !voiceSessionActive.value ||
+    isLoading.value ||
+    pendingConfirm.value ||
+    selectedFile.value ||
+    voiceRecognition
+  ) {
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const rec = new SR();
+  rec.lang = "en-IN";
+  rec.interimResults = true;
+  rec.continuous = true;
+  rec.maxAlternatives = 1;
+  voiceRecognition = rec;
+  attachVoiceRecognitionHandlers(rec);
+  try {
+    rec.start();
+  } catch {
+    voiceRecognition = null;
+    toast?.error?.("Voice start nahi ho saka.");
+  }
+}
+
+function startVoiceSession() {
+  if (!speechSupported.value || pendingConfirm.value || selectedFile.value) return;
+  voiceSessionActive.value = true;
+  tryStartVoiceRecognition();
+}
+
+function toggleVoice() {
+  if (voiceSessionActive.value) stopVoiceSession();
+  else startVoiceSession();
+}
+
+watch(isLoading, (loading, wasLoading) => {
+  if (wasLoading && !loading && voiceSessionActive.value && !pendingConfirm.value) {
+    nextTick(() => {
+      /* Session ab bhi chalu ho to zyada tar zaroorat nahi; browser ne band kiya ho to dubara start */
+      if (!voiceRecognition) tryStartVoiceRecognition();
+    });
+  }
+});
+
+watch(pendingConfirm, (p) => {
+  if (p && voiceSessionActive.value) stopVoiceSession();
+});
+
+watch(isOpen, (open) => {
+  if (!open && voiceSessionActive.value) stopVoiceSession();
+});
+
+onUnmounted(() => {
+  if (voiceSessionActive.value) stopVoiceSession();
+});
 
 const handleResponse = (data) => {
   if (!data?.success) {
@@ -436,7 +573,10 @@ const confirmAction = async () => {
 
 const cancelConfirm = () => {
   pendingConfirm.value = null;
-  addMessage("ai", "Theek hai, cancel kar diya ✋ Koi aur kaam?");
+  addMessage(
+    "ai",
+    "Theek hai — confirm wala action nahi hua (maine kuch cancel / start / bulk change apply nahi kiya). Koi aur command?"
+  );
 };
 
 const doExport = (format) => {
@@ -828,6 +968,49 @@ const doExport = (format) => {
   align-items: center;
   justify-content: center;
   font-size: 1rem;
+}
+
+.mic-fab {
+  width: 42px;
+  height: 42px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #fff;
+  color: #64748b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  transition:
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.15s;
+}
+
+.mic-fab:hover:not(:disabled) {
+  border-color: #a5b4fc;
+  color: #4f46e5;
+}
+
+.mic-fab--listening {
+  border-color: #f87171;
+  color: #dc2626;
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 0.25);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+.mic-fab:disabled {
+  opacity: 0.45;
+}
+
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgb(248 113 113 / 0.2);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgb(248 113 113 / 0.12);
+  }
 }
 
 .file-chip-wrap {

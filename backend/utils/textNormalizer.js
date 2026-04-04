@@ -26,8 +26,6 @@ const PHRASE_RULES = [
 ];
 
 const DOMAIN_WORDS = [
-  "task",
-  "tasks",
   "pending",
   "processing",
   "approve",
@@ -82,10 +80,31 @@ function levenshtein(a, b, maxDistance = 2) {
   return prev[bl];
 }
 
+/** In DOMAIN_WORDS se snap hone se bachao — "test"→"task" jaise galat rewrite */
+const SKIP_FUZZY_TO_DOMAIN = new Set([
+  "test",
+  "text",
+  "team",
+  "time",
+  "take",
+  "told",
+  "best",
+  "rest",
+  "host",
+  "post",
+  "fast",
+  "last",
+  "past",
+]);
+
 function maybeCorrectToken(token) {
   const lower = token.toLowerCase();
   if (tokenCache.has(lower)) return tokenCache.get(lower);
   if (lower.length < 4 || /[^a-z]/i.test(lower)) {
+    setCache(lower, token);
+    return token;
+  }
+  if (SKIP_FUZZY_TO_DOMAIN.has(lower)) {
     setCache(lower, token);
     return token;
   }
