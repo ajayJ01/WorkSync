@@ -1,4 +1,9 @@
-const { peekChatTaskContext, refersToListedTask } = require("./chatTaskContext");
+const {
+  peekChatTaskContext,
+  refersToListedTask,
+  refersToImplicitFollowupEdit,
+  peekLastTouchedTaskId,
+} = require("./chatTaskContext");
 const { resolveUniquePendingTaskId } = require("./dueDateTaskResolve");
 
 const MONTHS = {
@@ -190,14 +195,29 @@ function isLikelyDateOnlyFollowup(text) {
   return parseDueDateFromText(t) != null;
 }
 
-const REF_TASK_TOOLS = ["startTask", "cancelTask", "verifyTask", "updateTaskDueDate", "assignTask"];
+const REF_TASK_TOOLS = [
+  "startTask",
+  "cancelTask",
+  "verifyTask",
+  "updateTaskDueDate",
+  "assignTask",
+  "updateTaskTitle",
+  "updateTaskFile",
+  "updateTaskDescription",
+];
 
 function mergeAiToolInput(text, userId, tool, input) {
   const out = { ...(input || {}) };
 
-  if (REF_TASK_TOOLS.includes(tool) && !out.taskId && refersToListedTask(text)) {
-    const ids = peekChatTaskContext(userId);
-    if (ids.length === 1) out.taskId = ids[0];
+  if (REF_TASK_TOOLS.includes(tool) && !out.taskId) {
+    if (refersToListedTask(text)) {
+      const ids = peekChatTaskContext(userId);
+      if (ids.length === 1) out.taskId = ids[0];
+    }
+    if (!out.taskId && refersToImplicitFollowupEdit(text)) {
+      const last = peekLastTouchedTaskId(userId);
+      if (last) out.taskId = last;
+    }
   }
 
   if (tool === "updateTaskDueDate" && !out.dueDate) {

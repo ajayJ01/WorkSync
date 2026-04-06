@@ -5,6 +5,14 @@ const { success } = require("./response");
 const { parseDueDateFromText } = require("./parseDueDate");
 const { uploadFile } = require("./fileUpload");
 const { escapeRegex } = require("./regexSafe");
+const { setLastTouchedTaskId, prependChatTaskContext } = require("./chatTaskContext");
+
+function touchChatTaskMemory(userId, taskId) {
+  const id = String(taskId || "").trim();
+  if (!/^[a-f\d]{24}$/i.test(id)) return;
+  setLastTouchedTaskId(userId, id);
+  prependChatTaskContext(userId, id);
+}
 
 const AI_TASKS_PAGE_LIMIT = Math.min(
   parseInt(process.env.AI_CHAT_TASKS_LIMIT, 10) || 200,
@@ -118,6 +126,7 @@ async function executeTool(tool, input, req, reply) {
         .populate("createdBy", "name email")
         .lean();
 
+      touchChatTaskMemory(userId, String(created._id));
       return success(reply, "Quick task create ho gaya", populated);
     }
 
@@ -161,6 +170,7 @@ async function executeTool(tool, input, req, reply) {
         .populate("assignedTo", "name email")
         .populate("createdBy", "name email")
         .lean();
+      touchChatTaskMemory(userId, String(taskDoc._id));
       return success(reply, "Task file update ho gayi", populated);
     }
 
@@ -287,6 +297,7 @@ async function executeTool(tool, input, req, reply) {
         .lean();
 
       const names = foundUsers.map(u => u.name).join(", ");
+      touchChatTaskMemory(userId, String(taskId));
       return success(reply, `Task ${names} ko assign ho gayi`, populated);
     }
 
@@ -423,6 +434,7 @@ async function executeTool(tool, input, req, reply) {
         .populate("assignedTo", "name email")
         .populate("createdBy", "name email")
         .lean();
+      touchChatTaskMemory(userId, String(taskDoc._id));
       return success(reply, "Due date update ho gayi", populated);
     }
 
@@ -462,7 +474,48 @@ async function executeTool(tool, input, req, reply) {
         .populate("assignedTo", "name email")
         .populate("createdBy", "name email")
         .lean();
+      touchChatTaskMemory(userId, String(taskDoc._id));
       return success(reply, "Task title update ho gaya", populated);
+    }
+
+    case "updateTaskDescription": {
+      const userId = req.user.id;
+      const taskId = input?.taskId;
+      const nextDesc = String(input?.description || "").trim();
+      if (!taskId || !/^[a-f\d]{24}$/i.test(String(taskId))) {
+        return reply.send({
+          success: false,
+          message: "Task ID missing ya galat hai.",
+        });
+      }
+      if (!nextDesc) {
+        return reply.send({
+          success: false,
+          message: "Naya description missing hai. Example: \"update description to follow up with client\".",
+        });
+      }
+
+      const taskDoc = await Task.findOne({
+        _id: taskId,
+        $or: [{ createdBy: userId }, { assignedTo: userId }],
+      });
+      if (!taskDoc) {
+        return reply.send({
+          success: false,
+          message: "Task nahi mili ya access nahi hai.",
+        });
+      }
+
+      taskDoc.description = nextDesc.slice(0, 4000);
+      taskDoc.updatedAt = new Date();
+      await taskDoc.save();
+
+      const populated = await Task.findById(taskDoc._id)
+        .populate("assignedTo", "name email")
+        .populate("createdBy", "name email")
+        .lean();
+      touchChatTaskMemory(userId, String(taskDoc._id));
+      return success(reply, "Task description update ho gayi", populated);
     }
 
     case "verifyTask":

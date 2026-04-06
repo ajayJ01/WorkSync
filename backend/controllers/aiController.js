@@ -7,7 +7,12 @@ const User = require("../models/User");
 const { isAllowed, requiresConfirmation, isForbiddenIntent } = require("../utils/guard");
 const { askAnalyst } = require("../utils/aiAnalyst");
 const { replyIfUnsupportedChatAction } = require("../utils/chatUnsupportedIntents");
-const { setChatTaskContext, peekChatTaskContext } = require("../utils/chatTaskContext");
+const {
+  setChatTaskContext,
+  peekChatTaskContext,
+  refersToImplicitFollowupEdit,
+  peekLastTouchedTaskId,
+} = require("../utils/chatTaskContext");
 const {
   mergeAiToolInput,
   finalizeUpdateDueDateInput,
@@ -71,7 +76,8 @@ function extractStatusForCountQuery(text) {
   if (/\bpending|pend\b/i.test(lower)) return "pending";
   if (/\b(in[\s_]?progress|progress)\b/i.test(lower)) return "in_progress";
   if (/\bverified\b/i.test(lower)) return "verified";
-  if (/\bcancelled?\b/i.test(lower)) return "cancelled";
+  // "cancel task kitne" uses "cancel", not always "cancelled"
+  if (/\bcancel(?:led|ed)?\b/i.test(lower)) return "cancelled";
   if (/\bsubmitted?\b/i.test(lower)) return "submitted";
   if (/\brejected?\b/i.test(lower)) return "rejected";
   if (/\bdue|overdue|expired\b/i.test(lower)) return "due";
@@ -82,8 +88,15 @@ function isGlobalTaskCountQuery(text) {
   const lower = String(text || "").toLowerCase();
   const asksCount = /\b(kitne|how many|count|total)\b/i.test(lower);
   const hasTaskWord = /\b(task|tasks|kaam)\b/i.test(lower);
-  if (!asksCount || !hasTaskWord) return false;
-  return !hasPersonScopeInQuery(lower);
+  const hasStatusCue =
+    /\b(pending|in[\s_]?progress|progress|verified|cancel(?:led|ed)?|submitted|rejected|due|overdue|expired)\b/i.test(
+      lower
+    );
+  const asksPeopleNotTasks = /\b(users?|admins?|members?|यूजर)\b/i.test(lower);
+  if (!asksCount || hasPersonScopeInQuery(lower)) return false;
+  if (hasTaskWord) return true;
+  // "total cancel", "kitne pending" (task word optional) — not "pending users"
+  return hasStatusCue && !asksPeopleNotTasks;
 }
 
 function isIdentityQuery(text) {
@@ -492,12 +505,18 @@ function inferStatusActionTool(text) {
 function isJiskaTitleReferenceWithCancel(text) {
   const lower = String(text || "").toLowerCase();
   if (!/\bcancel\b/i.test(lower)) return false;
-  return /\b(jiska|jiski|jinke)\s+title\b/i.test(lower);
+  return (
+    /\b(jiska|jiski|jinke)\s+title\b/i.test(lower) ||
+    /\bwhose\s+title\b/i.test(lower) ||
+    /\b(which|the)\s+task(?:'s|s)?\s+title\b/i.test(lower)
+  );
 }
 
 function hasStrongAssignIntent(text) {
   const lower = String(text || "").toLowerCase();
   if (/\b(assign|reassign|asign|saup|allot)\b/i.test(lower)) return true;
+  // Hinglish: "test user pe sign kar do" ≈ assign
+  if (/\b(sign|saain)\b/i.test(lower) && /(user|users|ko|pe|par|per|@)/i.test(lower)) return true;
   if (/\bko\s+(assign|reassign|send|bhej|bhejo|forward)\b/i.test(lower)) return true;
   if (
     /\b(send|bhej|bhejo|forward|transfer)\b/i.test(lower) &&
@@ -507,13 +526,39 @@ function hasStrongAssignIntent(text) {
   return false;
 }
 
+/** "change karna hai" / "I need to change something" — no concrete task field */
+function isVagueTaskChangeRequest(text) {
+  const lower = String(text || "").toLowerCase().trim();
+  if (lower.length > 120) return false;
+  const wantsChangeHindi =
+    /\b(change|badal|badlo|update|edit|theek|thik|sahi)\b/i.test(lower) &&
+    /\b(karna|karni|krna|hai|hain|chahiye|karo|krdo|kar do)\b/i.test(lower);
+  const wantsChangeEnglish =
+    /\b(need|want|would like|have)\s+to\s+(change|update|edit)\b/i.test(lower) ||
+    /\b(please|pls)\s+(change|update|edit)\b/i.test(lower) ||
+    (/\b(change|update|edit)\b/i.test(lower) &&
+      /\b(something|it|this)\b/i.test(lower) &&
+      /\b(need|want|should|must)\b/i.test(lower));
+  if (!wantsChangeHindi && !wantsChangeEnglish) return false;
+  const hasSpecific =
+    /\b(title|due|deadline|assign|file|description|nam|naam|jiski|jiska|task\s*id|this task|that task|the task|which task|email|password|phone|mobile)\b/i.test(
+      lower
+    );
+  return !hasSpecific;
+}
+
 function textHasDueDateTaskRef(t) {
   const s = String(t || "").toLowerCase();
   return (
-    /\b(jiski|jiska|jiske)\s+due\s*(date)?\b/i.test(s) ||
+    /\b(jiski|jiska|jiske|jis\s+task\s+ki|jis\s+kaam\s+ki)\s+due\s*(date)?\b/i.test(s) ||
     /\b(jiski|jiska)\s+duty\b/i.test(s) ||
+    /\b(jiski|jiska)\s+(do\s*date|tarikh|tareek)\b/i.test(s) ||
     /\btasks?\s+jiski\s+due\b/i.test(s) ||
-    /\bjiski\s+due\s+date\b/i.test(s)
+    /\bjiski\s+due\s+date\b/i.test(s) ||
+    /\b(task|tasks)\s+with\s+due\s*(date)?\b/i.test(s) ||
+    /\bwhose\s+due\s*(date)?\b/i.test(s) ||
+    /\bdue\s+date\s+is\b/i.test(s) ||
+    /\b(the|this|that)\s+task\s+.*\bdue\s+(date\s+)?(is|on|of)\b/i.test(s)
   );
 }
 
@@ -522,13 +567,17 @@ function extractAssigneeForDueRefSend(rawText, normText) {
     if (!s) return "";
     const raw = String(s);
     const m1 = raw.match(
-      /(?:hai|hai\.)\s+(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign)\b/i
+      /(?:hai|hai\.)\s+(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign|sign)\b/i
     );
     if (m1?.[1]) return m1[1].replace(/\s+/g, " ").trim().slice(0, 120);
     const m2 = raw.match(
-      /\b(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign)\b/i
+      /\b(?:vah|wo|woh|ye|yeh)\s+(.+?)\s+ko\s+(?:send|bhej|bhejo|forward|assign|reassign|sign)\b/i
     );
     if (m2?.[1]) return m2[1].replace(/\s+/g, " ").trim().slice(0, 120);
+    const peSignAll = [...raw.matchAll(/([A-Za-z0-9@._-]+(?:\s+[A-Za-z0-9@._-]+)+)\s+(?:pe|par|per)\s+sign\b/gi)];
+    if (peSignAll.length) {
+      return peSignAll[peSignAll.length - 1][1].replace(/\s+/g, " ").trim().slice(0, 120);
+    }
     return "";
   };
   return tryOne(rawText) || tryOne(normText);
@@ -555,16 +604,22 @@ function extractAssignInput(text) {
   const email = raw.match(/\b([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b/);
   if (email) out.assigneeQuery = email[1];
 
-  const titleLead = raw.match(/\b(.+?)\s+task\s+ko\s+.+?\s+(?:assign|assine|asign|reassign)\b/i);
+  const titleLead = raw.match(
+    /\b(.+?)\s+task\s+ko\s+.+?\s+(?:assign|assine|asign|reassign|sign)\b/i
+  );
   if (titleLead?.[1]) out.taskTitle = titleLead[1].trim();
 
   const refKo = raw.match(
-    /\b(?:isko|usko|is task ko|ye task ko)\s+(.+?)\s+ko\s+(?:assign|assine|asign|reassign)\b/i
+    /\b(?:isko|usko|is task ko|ye task ko)\s+(.+?)\s+ko\s+(?:assign|assine|asign|reassign|sign)\b/i
   );
   if (refKo?.[1]) out.assigneeQuery = refKo[1].trim();
-  const byKo = raw.match(/\b(.+?)\s+ko\s+(?:assign|assine|asign|reassign)\b/i);
+  const byKo = raw.match(/\b(.+?)\s+ko\s+(?:assign|assine|asign|reassign|sign)\b/i);
   if (byKo?.[1] && !out.assigneeQuery) out.assigneeQuery = byKo[1].trim();
-  const byTo = raw.match(/\b(?:assign|assine|asign|reassign)\s+(?:to\s+)?(.+?)\b$/i);
+  const peSignAll = [...raw.matchAll(/([A-Za-z0-9@._-]+(?:\s+[A-Za-z0-9@._-]+)+)\s+(?:pe|par|per)\s+sign\b/gi)];
+  if (peSignAll.length && !out.assigneeQuery) {
+    out.assigneeQuery = peSignAll[peSignAll.length - 1][1].replace(/\s+/g, " ").trim();
+  }
+  const byTo = raw.match(/\b(?:assign|assine|asign|reassign|sign)\s+(?:to\s+)?(.+?)\b$/i);
   if (byTo?.[1] && !out.assigneeQuery) out.assigneeQuery = byTo[1].trim();
 
   const parsed = parseDueDateFromText(raw);
@@ -577,14 +632,45 @@ function extractTitleUpdateInput(text) {
   const raw = String(text || "").trim();
   if (!raw) return {};
   let title = "";
-  const m1 = raw.match(/\b(?:title|name)\b.*?\b(?:ki|to)\s+(.+)$/i);
+  const m1 = raw.match(
+    /\b(?:title|name|nam|naam|heading)\b.*?\b(?:ki|ko|me|pe|par|as|to|→|:)\s+(.+)$/i
+  );
   if (m1?.[1]) title = m1[1].trim();
   if (!title) {
-    const m2 = raw.match(/\b(?:rename|update|change|badal|badlo)\b.*?\b(?:to)\s+(.+)$/i);
+    const m2 = raw.match(/\b(?:rename|update|change|badal|badlo)\b.*?\b(?:to|as|ki)\s+(.+)$/i);
     if (m2?.[1]) title = m2[1].trim();
+  }
+  if (!title) {
+    const m3 = raw.match(/\b(?:title|naam|nam)\s+(.{2,140})$/i);
+    if (m3?.[1] && /\b(rakho|rakhna|karo|krdo|likho|set|do)\b/i.test(raw)) title = m3[1].trim();
   }
   if (!title) return {};
   return { title: title.replace(/["'.\s]+$/g, "").slice(0, 140) };
+}
+
+function extractDescriptionUpdateInput(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return {};
+  const quoted =
+    raw.match(/\b(?:description|details|vivran)\b[^"'`]*["'`](.+?)["'`]/i) ||
+    raw.match(/\b(?:desc|description)\s*:\s*["'`](.+?)["'`]/i);
+  if (quoted?.[1]) return { description: quoted[1].trim().slice(0, 4000) };
+  const m1 = raw.match(
+    /\b(?:description|details|vivran|note)\b.*?\b(?:to|as|is|me|mein|→|:)\s*(.+)$/is
+  );
+  if (m1?.[1]) {
+    const d = m1[1].replace(/["'.\s]+$/g, "").trim();
+    if (d.length >= 2) return { description: d.slice(0, 4000) };
+  }
+  const m2 = raw.match(
+    /\b(?:update|change|set|edit|badal|badlo)\s+(?:the\s+)?(?:description|details|vivran)\s+(?:to\s+|ko\s+)?(.+)$/i
+  );
+  if (m2?.[1]) return { description: m2[1].trim().slice(0, 4000) };
+  const m3 = raw.match(/\b(?:about|bare\s*me|baare\s*me)\s+(.+)$/i);
+  if (m3?.[1] && /\b(description|details|vivran|update)\b/i.test(raw)) {
+    return { description: m3[1].trim().slice(0, 4000) };
+  }
+  return {};
 }
 
 function isStatusMutationPhrase(text) {
@@ -662,37 +748,43 @@ async function resolveTaskIdFromText(userId, text, rawText = null) {
 
   const variants = extractTitleHintVariants(text, rawText);
   const escs = variants.map((h) => escapeRegexTruncated(h)).filter(Boolean);
-  if (!escs.length) return null;
 
-  const orCond = escs.flatMap((esc) => [
-    { title: { $regex: esc, $options: "i" } },
-    { description: { $regex: esc, $options: "i" } },
-  ]);
+  if (escs.length) {
+    const orCond = escs.flatMap((esc) => [
+      { title: { $regex: esc, $options: "i" } },
+      { description: { $regex: esc, $options: "i" } },
+    ]);
 
-  const list = await Task.find({
-    $and: [{ $or: [{ createdBy: userId }, { assignedTo: userId }] }, { $or: orCond }],
-  })
-    .select("_id status")
-    .lean();
-  const dedup = [];
-  const seen = new Set();
-  for (const t of list) {
-    const id = String(t._id);
-    if (seen.has(id)) continue;
-    seen.add(id);
-    dedup.push(t);
+    const list = await Task.find({
+      $and: [{ $or: [{ createdBy: userId }, { assignedTo: userId }] }, { $or: orCond }],
+    })
+      .select("_id status")
+      .lean();
+    const dedup = [];
+    const seen = new Set();
+    for (const t of list) {
+      const id = String(t._id);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      dedup.push(t);
+    }
+    if (dedup.length === 1) return String(dedup[0]._id);
+    if (dedup.length > 1) {
+      const active = dedup.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+      if (active.length === 1) return String(active[0]._id);
+    }
+
+    const fuzzyList = await fuzzyTasksByTitleHints(userId, variants, { limit: 8, maxScan: 100 });
+    if (fuzzyList.length === 1) return String(fuzzyList[0]._id);
+    if (fuzzyList.length > 1) {
+      const activeF = fuzzyList.filter((t) => t.status !== "cancelled" && t.status !== "verified");
+      if (activeF.length === 1) return String(activeF[0]._id);
+    }
   }
-  if (dedup.length === 1) return String(dedup[0]._id);
-  if (dedup.length > 1) {
-    const active = dedup.filter((t) => t.status !== "cancelled" && t.status !== "verified");
-    if (active.length === 1) return String(active[0]._id);
-  }
 
-  const fuzzyList = await fuzzyTasksByTitleHints(userId, variants, { limit: 8, maxScan: 100 });
-  if (fuzzyList.length === 1) return String(fuzzyList[0]._id);
-  if (fuzzyList.length > 1) {
-    const activeF = fuzzyList.filter((t) => t.status !== "cancelled" && t.status !== "verified");
-    if (activeF.length === 1) return String(activeF[0]._id);
+  if (refersToImplicitFollowupEdit(text, rawText)) {
+    const last = peekLastTouchedTaskId(userId);
+    if (last) return last;
   }
   return null;
 }
@@ -1286,6 +1378,19 @@ exports.handleAI = async (req, reply) => {
       return reply.send({ success: true, type: "analyst", message: answer });
     }
 
+    if (isVagueTaskChangeRequest(text)) {
+      return reply.send({
+        success: true,
+        type: "clarify",
+        message: l10n(
+          chatLang,
+          "What should change — title, due date, assignee, or file? Example: \"jiski due 6 April 12 PM hai uska title …\" or paste the task ID.",
+          "क्या बदलना है — title, due date, assignee, या file? उदाहरण: \"jiski due 6 April 12 PM hai uska title …\" या task ID paste करें।",
+          "Kya badalna hai — title, due date, assignee, ya file? Example: \"jiski due 6 April 12 PM hai uska title …\" ya task ID paste karo."
+        ),
+      });
+    }
+
     let isAnalytical = await classifyIntent(text);
     if (forceActionByPolicy) isAnalytical = false;
     if (hasKeywordSearchIntent(text)) isAnalytical = false;
@@ -1507,7 +1612,18 @@ exports.handleAI = async (req, reply) => {
     }
 
     // Action tools ke liye clarification se pehle deterministic task resolve try karo
-    if (["cancelTask", "startTask", "verifyTask", "updateTaskTitle", "updateTaskFile", "updateTaskDueDate", "assignTask"].includes(aiRes.tool)) {
+    if (
+      [
+        "cancelTask",
+        "startTask",
+        "verifyTask",
+        "updateTaskTitle",
+        "updateTaskDescription",
+        "updateTaskFile",
+        "updateTaskDueDate",
+        "assignTask",
+      ].includes(aiRes.tool)
+    ) {
       if (!isValidObjectId(aiRes.input?.taskId)) {
         const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
         if (inferred) aiRes.input.taskId = inferred;
@@ -1532,7 +1648,18 @@ exports.handleAI = async (req, reply) => {
       if (blocked) {
         return reply.send({ success: true, type: "analyst", message: blocked });
       }
-      if (["cancelTask", "startTask", "verifyTask", "assignTask", "updateTaskTitle", "updateTaskDueDate", "updateTaskFile"].includes(aiRes?.tool)) {
+      if (
+        [
+          "cancelTask",
+          "startTask",
+          "verifyTask",
+          "assignTask",
+          "updateTaskTitle",
+          "updateTaskDescription",
+          "updateTaskDueDate",
+          "updateTaskFile",
+        ].includes(aiRes?.tool)
+      ) {
         const choices = await suggestTaskChoicesFromTitle(user.id, text, 3, req.aiRawUserText);
         if (choices.length) {
           setDraft(user.id, { tool: aiRes.tool, input: aiRes.input || {}, clarifyQuery: text, candidates: choices });
@@ -1702,6 +1829,37 @@ exports.handleAI = async (req, reply) => {
             'New title is missing. Example: "update title to fix bugs".',
             'नया title missing है। उदाहरण: "title update karke fix bugs kar do".',
             "Naya title missing hai. Example: uska title update karo ki fix bugs."
+          ),
+        });
+      }
+    }
+
+    if (aiRes.tool === "updateTaskDescription") {
+      const guessed = extractDescriptionUpdateInput(text);
+      aiRes.input = { ...guessed, ...(aiRes.input || {}) };
+      if (!isValidObjectId(aiRes.input?.taskId)) {
+        const inferred = await resolveTaskIdFromText(user.id, text, req.aiRawUserText);
+        if (inferred) aiRes.input.taskId = inferred;
+      }
+      if (!aiRes.input?.taskId) {
+        return reply.send({
+          success: false,
+          message: l10n(
+            chatLang,
+            "Which task description should change? Say \"the one we just created\" or paste task ID.",
+            "किस task का description बदलना है? जो अभी बनाया उसका बोलें या task ID दें।",
+            "Kis task ka description badalna hai? Jo abhi banaya wahi bolo ya task ID do."
+          ),
+        });
+      }
+      if (!aiRes.input?.description) {
+        return reply.send({
+          success: false,
+          message: l10n(
+            chatLang,
+            'New description missing. Example: "set description to follow up tomorrow".',
+            "नया description missing है। उदाहरण: \"description follow up tomorrow rakho\".",
+            "Naya description missing. Example: description update karo ki follow up tomorrow."
           ),
         });
       }

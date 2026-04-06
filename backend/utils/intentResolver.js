@@ -80,6 +80,7 @@ const SUPPORTED_TOOLS = new Set([
   "createSimpleTask",
   "updateTaskFile",
   "updateTaskTitle",
+  "updateTaskDescription",
   "assignTask",
   "startTask",
   "cancelTask",

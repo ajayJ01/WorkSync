@@ -45,6 +45,28 @@ async function initNLU() {
   manager.addDocument('en', 'update the title', 'updateTaskTitle');
   manager.addDocument('en', 'iska title set karo', 'updateTaskTitle');
 
+  manager.addDocument('en', 'update description', 'updateTaskDescription');
+  manager.addDocument('en', 'change task description', 'updateTaskDescription');
+  manager.addDocument('en', 'description badal do', 'updateTaskDescription');
+  manager.addDocument('en', 'iska description set karo', 'updateTaskDescription');
+  manager.addDocument('en', 'naam badal do task ka', 'updateTaskTitle');
+  manager.addDocument('en', 'heading update karo', 'updateTaskTitle');
+  manager.addDocument('en', 'abhi wale ka title change karo', 'updateTaskTitle');
+  manager.addDocument('en', 'jo task banaya uska naam', 'updateTaskTitle');
+  manager.addDocument('en', 'due date aage badhao', 'updateTaskDueDate');
+  manager.addDocument('en', 'tarikh change karni hai', 'updateTaskDueDate');
+  manager.addDocument('en', 'last date extend karo', 'updateTaskDueDate');
+  manager.addDocument('en', 'isko kal tak karo due', 'updateTaskDueDate');
+  manager.addDocument('en', 'details update karo task ki', 'updateTaskDescription');
+  manager.addDocument('en', 'vivran badal do', 'updateTaskDescription');
+  manager.addDocument('en', 'file laga do isme', 'updateTaskFile');
+  manager.addDocument('en', 'pdf chipka do', 'updateTaskFile');
+  manager.addDocument('en', 'is ko test user ko assign', 'assignTask');
+  manager.addDocument('en', 'us wale task ko assign karo', 'assignTask');
+  manager.addDocument('en', 'naya kaam banao', 'createSimpleTask');
+  manager.addDocument('en', 'ek kam add kardo', 'createSimpleTask');
+  manager.addDocument('en', 'task banwa do', 'createSimpleTask');
+
   // 5. assignTask
   manager.addDocument('en', 'assign this to', 'assignTask');
   manager.addDocument('en', 'isko kaam de do', 'assignTask');

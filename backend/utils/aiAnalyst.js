@@ -1,6 +1,7 @@
 const axios = require("axios");
 const Task = require("../models/Task");
 const User = require("../models/User");
+const { clearChatTaskMemory } = require("./chatTaskContext");
 const { replyIfUnsupportedChatAction } = require("./chatUnsupportedIntents");
 const { setFocusedAssignee } = require("./chatEntityContext");
 const { isAiUnavailable, markAiUnavailable } = require("./aiAvailability");
@@ -29,12 +30,30 @@ async function fetchDBContext(role, userId) {
     const currentLoggedInUser = await fetchCurrentLoggedInUser(userId);
     if (!currentLoggedInUser) return null;
 
+    const now = new Date();
+    const todayStart = new Date(now);
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(now);
+    todayEnd.setHours(23, 59, 59, 999);
+    const fmtLocalYMD = (d) => {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    };
+    const todayLabel = todayStart.toLocaleDateString("en-IN", {
+      weekday: "long",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+
     if (role === "admin") {
       const [
         totalUsers, totalAdmins, totalTasks,
         pendingTasks, inProgressTasks, submittedTasks,
         verifiedTasks, cancelledTasks, rejectedTasks,
-        dueTasks, recentTasks, recentUsers,
+        dueTasks, tasksDueToday, recentTasks, recentUsers,
       ] = await Promise.all([
         User.countDocuments({ role: "user" }),
         User.countDocuments({ role: "admin" }),
@@ -46,6 +65,7 @@ async function fetchDBContext(role, userId) {
         Task.countDocuments({ status: "cancelled" }),
         Task.countDocuments({ status: "rejected" }),
         Task.countDocuments({ status: "due" }),
+        Task.countDocuments({ dueDate: { $gte: todayStart, $lte: todayEnd } }),
         Task.find().sort({ createdAt: -1 }).limit(5)
           .populate("assignedTo", "name")
           .populate("createdBy", "name")
@@ -57,6 +77,11 @@ async function fetchDBContext(role, userId) {
 
       return {
         currentLoggedInUser,
+        todaySummary: {
+          localCalendarDate: fmtLocalYMD(todayStart),
+          labelEnIN: todayLabel,
+          tasksDueTodayCount: tasksDueToday,
+        },
         users: { total: totalUsers, admins: totalAdmins },
         tasks: {
           total: totalTasks,
@@ -84,7 +109,7 @@ async function fetchDBContext(role, userId) {
     } else {
       const [
         myTotal, myPending, myInProgress,
-        mySubmitted, myVerified, myRejected, myTasks,
+        mySubmitted, myVerified, myRejected, myDueToday, myTasks,
       ] = await Promise.all([
         Task.countDocuments({ assignedTo: userId }),
         Task.countDocuments({ assignedTo: userId, status: "pending" }),
@@ -92,6 +117,10 @@ async function fetchDBContext(role, userId) {
         Task.countDocuments({ assignedTo: userId, status: "submitted" }),
         Task.countDocuments({ assignedTo: userId, status: "verified" }),
         Task.countDocuments({ assignedTo: userId, status: "rejected" }),
+        Task.countDocuments({
+          assignedTo: userId,
+          dueDate: { $gte: todayStart, $lte: todayEnd },
+        }),
         Task.find({ assignedTo: userId }).sort({ createdAt: -1 }).limit(5)
           .select("title status dueDate")
           .lean(),
@@ -99,6 +128,11 @@ async function fetchDBContext(role, userId) {
 
       return {
         currentLoggedInUser,
+        todaySummary: {
+          localCalendarDate: fmtLocalYMD(todayStart),
+          labelEnIN: todayLabel,
+          myTasksDueTodayCount: myDueToday,
+        },
         myTasks: {
           total: myTotal,
           pending: myPending,
@@ -289,6 +323,8 @@ Detect the language of the user's latest message and reply in THAT EXACT languag
 You have access to LIVE database stats. Answer based ONLY on this data.
 Never make up numbers.
 
+JSON key "todaySummary" is the server's local calendar date (labelEnIN + localCalendarDate) and tasksDueTodayCount (tasks whose dueDate falls on that calendar day). For "aaj due"/"today"/"kal" due-date questions, use todaySummary — never claim you don't have today's date.
+
 !! RULE #3 — WHO IS CHATTING (CRITICAL) !!
 The ONLY person you are talking to is in JSON key "currentLoggedInUser" (their real name, email, role from DB).
 For ANY question like "mera role", "my role", "main kaun", "who am I", "meri email" — answer ONLY from currentLoggedInUser.
@@ -336,6 +372,8 @@ Detect the language of the user's latest message and reply in THAT EXACT languag
 
 You can ONLY answer questions about the current user's own tasks.
 Never reveal other users' data.
+
+JSON key "todaySummary" has the local calendar date and myTasksDueTodayCount for tasks assigned to this user due that day. Use it for "aaj due"/today questions — never say you lack today's date.
 
 !! RULE #3 — WHO IS CHATTING (CRITICAL) !!
 The person chatting is in "currentLoggedInUser" (name, email, role). For "mera role", "my role", "main kaun", "meri email" — use ONLY that object.
@@ -418,6 +456,7 @@ Other Rules:
 // ─────────────────────────────────────────────
 function clearChatHistory(userId) {
   delete chatHistories[userId];
+  clearChatTaskMemory(userId);
 }
 
 function localAnalystReply(userInput, dbData, role) {
@@ -435,6 +474,17 @@ function localAnalystReply(userInput, dbData, role) {
 
   if (role === "admin") {
     const { users, tasks } = dbData;
+    const ts = dbData.todaySummary;
+    if (
+      ts &&
+      /\b(aaj|today|kal|tomorrow)\b/i.test(lower) &&
+      /(due|deadline|date|do\s+date|tasks?)/i.test(lower)
+    ) {
+      return (
+        `Aaj ki date ${ts.labelEnIN} (${ts.localCalendarDate}) hai. ` +
+        `Is din due date wale tasks (system calendar): ${ts.tasksDueTodayCount}.`
+      );
+    }
     if (
       /(user|users|member|admin|लोग|यूजर)/i.test(lower) &&
       /(kitne|how many|count|total|कितने)/i.test(lower)
@@ -462,6 +512,17 @@ function localAnalystReply(userInput, dbData, role) {
   }
 
   const m = dbData.myTasks;
+  const ts = dbData.todaySummary;
+  if (
+    ts &&
+    /\b(aaj|today)\b/i.test(lower) &&
+    /(due|deadline|date|do\s+date|tasks?)/i.test(lower)
+  ) {
+    return (
+      `Aaj ki date ${ts.labelEnIN} (${ts.localCalendarDate}) hai. ` +
+      `Tumhari assigned tasks mein aaj due: ${ts.myTasksDueTodayCount}.`
+    );
+  }
   if (/(kitne|how many|count|total|कितने|pending|status)/i.test(lower)) {
     return (
       `Teri tasks: total ${m.total} — pending ${m.pending}, in progress ${m.in_progress}, ` +

@@ -11,7 +11,9 @@ exports.getProfile = async (req, reply) => {
 
 exports.getAllNormalUsers = async (req, reply) => {
   try {
-    const users = await User.find({ role: "user" }).select("-password");
+    // All accounts (except password) so admins can assign tasks to any teammate,
+    // including when no separate "user" role rows exist yet.
+    const users = await User.find({}).select("-password").sort({ name: 1 }).lean();
     return success(reply, "Users fetched successfully", users);
   } catch (err) {
     console.error("Get Users Error:", err.message);

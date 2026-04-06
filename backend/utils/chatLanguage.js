@@ -17,10 +17,12 @@ function detectChatLanguage(text) {
   // Roman-Hindi (Hinglish) cues.
   const hinglishLexicon = new Set([
     "kya", "kaise", "kese", "mera", "meri", "mere", "tum", "aap", "hai", "hain", "kar",
-    "karo", "kr", "dikhao", "batao", "kitne", "kaun", "kyun", "banao", "banado", "ek",
-    "naya", "kal", "aaj", "mujhe", "dekho", "lao", "hua", "hui", "kab", "kaha", "kidhar",
+    "karo", "kr", "dikhao", "batao", "btao", "kitne", "kaun", "kyun", "banao", "banado", "ek",
+    "naya", "kal", "aaj", "abhi", "mujhe", "dekho", "lao", "hua", "hui", "kab", "kaha", "kidhar",
     "kisko", "namaste", "pranam", "nhi", "nahi", "haan", "acha", "accha", "theek", "thik",
-    "apna", "apni", "ka", "ki", "ke", "pas", "paas", "sab", "saare", "jiska", "jinki",
+    "apna", "apni", "ka", "ki", "ke", "pas", "paas", "sab", "saare", "jiska", "jiski", "jinki",
+    "nam", "naam", "badal", "badlo", "wahi", "yahi", "tarikh", "tareek", "vivran", "kaam", "kam",
+    "banaya", "banayi", "chipka", "lagao", "assign", "isko", "usko", "pehle", "phir",
   ]);
 
   // Common English conversational cues.

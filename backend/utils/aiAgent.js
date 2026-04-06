@@ -47,6 +47,7 @@ ALLOWED TOOLS and when to use them:
 - createSimpleTask → quick task create without file (chat-only lightweight create)
 - updateTaskFile   → upload/replace attachment for one task (taskId required or inferred from context)
 - updateTaskTitle  → update title for one task (taskId required or inferred from due-date/context)
+- updateTaskDescription → update description/body text for one task (taskId + description)
 - assignTask     → admin assigns a task to a user (name/email) for one task
 - startTask      → user wants to start a task (e.g. "task start karo", "begin task")
 - cancelTask     → user wants to cancel ONE task by ID (e.g. mentions MongoDB id)
@@ -87,6 +88,8 @@ Input: "new task banao kal report bhejni hai" → {"tool":"createSimpleTask","in
 Input: "isko test user ko assign karo" → {"tool":"assignTask","input":{"taskId":"<from context/id>","assigneeQuery":"test user"}}
 Input: "jiski due 1 Apr hai usme attached file upload karo" → {"tool":"updateTaskFile","input":{"taskId":"<from context/id>"}}
 Input: "task jiski due 1 Apr 3pm hai uska title update karo ki fix bugs" → {"tool":"updateTaskTitle","input":{"taskId":"<from context/id>","title":"fix bugs"}}
+Input: "change description to call client tomorrow" → {"tool":"updateTaskDescription","input":{"description":"call client tomorrow"}}
+Input: "update its description — send report by EOD" → {"tool":"updateTaskDescription","input":{"description":"send report by EOD"}}
 Input: "pending task ki due 2 din badhao" → {"tool":"extendPendingDueDate","input":{"days":2}}
 Input: "due date 2026-05-01 ko set karo task abc..." → {"tool":"updateTaskDueDate","input":{"taskId":"<24hex>","dueDate":"2026-05-01"}}
 Input: "fuck" → {"tool":"unknown","input":{}}

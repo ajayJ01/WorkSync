@@ -1,0 +1,1399 @@
+/* WorkSync dashboard chrome — matches login (indigo / violet, soft mesh) */
+
+.ws-app-shell {
+  --ws-ink: #0c1222;
+  --ws-ink-soft: #3d4d6b;
+  --ws-muted: #5c6b86;
+  --ws-line: rgba(12, 18, 34, 0.08);
+  --ws-accent: #4f6cf8;
+  --ws-accent-2: #7c5cff;
+  --ws-accent-soft: rgba(79, 108, 248, 0.14);
+  --ws-sidebar-bg: linear-gradient(165deg, #0d1528 0%, #121c38 52%, #151839 100%);
+  --ws-sidebar-border: rgba(255, 255, 255, 0.08);
+  --ws-sidebar-fg: rgba(232, 237, 247, 0.92);
+  --ws-sidebar-muted: rgba(196, 210, 255, 0.55);
+  --ws-font: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --ws-display: 'Outfit', var(--ws-font);
+  --ws-radius: 14px;
+  --ws-radius-lg: 18px;
+  font-family: var(--ws-font);
+  color: var(--ws-ink);
+  -webkit-font-smoothing: antialiased;
+  background:
+    linear-gradient(168deg, #eef1f9 0%, #e8ecf6 45%, #f2f0fb 100%);
+  position: relative;
+  overflow-x: hidden;
+}
+
+.ws-app-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 80% 55% at 8% 15%, rgba(124, 92, 255, 0.07), transparent 50%),
+    radial-gradient(ellipse 70% 50% at 92% 8%, rgba(79, 108, 248, 0.09), transparent 45%);
+}
+
+.ws-app-shell > .row.flex-grow-1 {
+  position: relative;
+  z-index: 1;
+}
+
+/* —— Header —— */
+.ws-app-shell .ws-header {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1.1rem 0.65rem 1rem;
+  background: rgba(255, 255, 255, 0.78);
+  border-bottom: 1px solid rgba(12, 18, 34, 0.06);
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  .ws-app-shell .ws-header {
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.72);
+  }
+}
+
+.ws-app-shell .ws-header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.ws-app-shell .ws-header-logo-wrap {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: linear-gradient(145deg, #f1f5f9 0%, #e8eef8 100%);
+  border: 1px solid rgba(12, 18, 34, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.ws-app-shell .header-logo {
+  width: 26px !important;
+  height: 26px !important;
+  margin-right: 0 !important;
+  border-radius: 6px !important;
+  padding: 0 !important;
+  background: transparent !important;
+  object-fit: contain;
+}
+
+.ws-app-shell .ws-header-title {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  letter-spacing: -0.03em;
+  color: var(--ws-ink);
+  margin: 0;
+}
+
+.ws-app-shell .ws-header-user {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.ws-app-shell .ws-user-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--ws-accent) 0%, var(--ws-accent-2) 100%);
+  color: #fff;
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(79, 108, 248, 0.35);
+}
+
+.ws-app-shell .ws-user-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  min-width: 0;
+}
+
+.ws-app-shell .ws-user-hi {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ws-muted);
+}
+
+.ws-app-shell .ws-user-name {
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ws-ink);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 575.98px) {
+  .ws-app-shell .ws-user-text {
+    display: none;
+  }
+}
+
+.ws-app-shell .hamburger-menu {
+  color: var(--ws-ink-soft);
+  border-radius: 10px;
+  padding: 0.35rem 0.5rem;
+  transition: background 0.15s ease;
+}
+
+.ws-app-shell .hamburger-menu:hover {
+  background: rgba(79, 108, 248, 0.08);
+}
+
+/* —— Sidebar —— */
+.ws-app-shell .sidebar-sticky {
+  background: var(--ws-sidebar-bg) !important;
+  border-right: 1px solid var(--ws-sidebar-border) !important;
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.12);
+  padding-top: 4.5rem !important;
+}
+
+.ws-app-shell .ws-sidebar-label {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ws-sidebar-muted);
+  margin: 0 0 0.65rem 0.15rem;
+}
+
+.ws-app-shell .nav-modern {
+  color: var(--ws-sidebar-fg) !important;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 0.7rem 0.85rem;
+  font-weight: 600;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.15s ease;
+}
+
+.ws-app-shell .nav-modern:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: #fff !important;
+  transform: translateX(2px);
+}
+
+.ws-app-shell .nav-modern.active-modern,
+.ws-app-shell .router-link-active.nav-modern {
+  background: rgba(124, 92, 255, 0.22) !important;
+  border-color: rgba(165, 180, 252, 0.35);
+  color: #fff !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset,
+    0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+.ws-app-shell .nav-modern i {
+  opacity: 0.9;
+}
+
+.ws-app-shell .sidebar-sticky .border-top {
+  border-color: var(--ws-sidebar-border) !important;
+}
+
+.ws-app-shell .ws-logout-btn {
+  border-radius: 12px !important;
+  font-weight: 600 !important;
+  border: 1px solid rgba(248, 113, 113, 0.35) !important;
+  background: rgba(254, 226, 226, 0.12) !important;
+  color: #fecaca !important;
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.ws-app-shell .ws-logout-btn:hover {
+  background: rgba(254, 202, 202, 0.2) !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+/* —— Main —— */
+.ws-app-shell .main-content {
+  background: transparent;
+}
+
+.ws-app-shell .dashboard-wrap {
+  min-height: calc(100vh - 72px);
+  padding-bottom: 1.5rem;
+  background: transparent;
+}
+
+/* —— Hero —— */
+.ws-app-shell .ws-hero {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  padding: 1.15rem 1.25rem;
+  border-radius: var(--ws-radius-lg);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 250, 255, 0.98) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 16px 40px -12px rgba(15, 23, 42, 0.1);
+}
+
+@supports (backdrop-filter: blur(12px)) {
+  .ws-app-shell .ws-hero {
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.82) 0%, rgba(248, 250, 255, 0.9) 100%);
+  }
+}
+
+.ws-app-shell .ws-hero-kicker {
+  margin: 0 0 0.35rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ws-accent);
+}
+
+.ws-app-shell .ws-hero-title {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: clamp(1.25rem, 2.5vw, 1.5rem);
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+  margin: 0 0 0.35rem;
+  color: var(--ws-ink);
+}
+
+.ws-app-shell .ws-hero-sub {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--ws-muted);
+}
+
+.ws-app-shell .ws-hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ws-muted);
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(79, 108, 248, 0.08);
+  border: 1px solid rgba(79, 108, 248, 0.12);
+}
+
+.ws-app-shell .ws-hero-meta i {
+  font-size: 0.95rem;
+  color: var(--ws-accent);
+}
+
+@media (max-width: 767.98px) {
+  .ws-app-shell .ws-hero {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* —— Metric cards —— */
+.ws-app-shell .ws-metric {
+  height: 100%;
+  padding: 1rem 1.05rem;
+  border-radius: var(--ws-radius-lg);
+  background: linear-gradient(165deg, #ffffff 0%, #fafbff 100%);
+  border: 1px solid rgba(12, 18, 34, 0.06);
+  box-shadow: 0 8px 28px rgba(15, 23, 42, 0.06);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.ws-app-shell .ws-metric:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 36px rgba(79, 108, 248, 0.12);
+}
+
+.ws-app-shell .ws-metric-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.ws-app-shell .ws-metric-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  background: var(--ws-accent-soft);
+  color: var(--ws-accent);
+}
+
+.ws-app-shell .ws-metric-icon.ws-metric-icon--violet {
+  background: rgba(124, 92, 255, 0.14);
+  color: var(--ws-accent-2);
+}
+
+.ws-app-shell .ws-metric-icon.ws-metric-icon--amber {
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.ws-app-shell .ws-metric-icon.ws-metric-icon--rose {
+  background: rgba(244, 63, 94, 0.12);
+  color: #e11d48;
+}
+
+.ws-app-shell .ws-metric-icon.ws-metric-icon--teal {
+  background: rgba(20, 184, 166, 0.14);
+  color: #0d9488;
+}
+
+.ws-app-shell .ws-metric-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ws-muted);
+  line-height: 1.3;
+  text-align: right;
+}
+
+.ws-app-shell .ws-metric-value {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 1.65rem;
+  letter-spacing: -0.03em;
+  color: var(--ws-ink);
+  line-height: 1.1;
+}
+
+/* —— Panels —— */
+.ws-app-shell .ws-panel {
+  height: 100%;
+  padding: 1.15rem 1.2rem;
+  border-radius: var(--ws-radius-lg);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(252, 252, 255, 0.98) 100%);
+  border: 1px solid rgba(12, 18, 34, 0.06);
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.07);
+}
+
+@supports (backdrop-filter: blur(8px)) {
+  .ws-app-shell .ws-panel {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.88) 0%, rgba(252, 252, 255, 0.92) 100%);
+  }
+}
+
+.ws-app-shell .ws-panel-title {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  color: var(--ws-ink);
+  margin: 0 0 0.85rem;
+}
+
+/* Insight tiles */
+.ws-app-shell .ws-insight {
+  border-radius: var(--ws-radius);
+  padding: 0.75rem 0.85rem;
+  border: 1px solid transparent;
+  height: 100%;
+  transition: transform 0.15s ease;
+}
+
+.ws-app-shell .ws-insight:hover {
+  transform: scale(1.02);
+}
+
+.ws-app-shell .ws-insight-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.ws-app-shell .ws-insight-head i {
+  font-size: 1rem;
+  opacity: 0.85;
+}
+
+.ws-app-shell .ws-insight-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.ws-app-shell .ws-insight-value {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 1.35rem;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.ws-app-shell .ws-insight--danger {
+  background: linear-gradient(145deg, #fff1f2 0%, #ffe4e6 100%);
+  border-color: rgba(251, 113, 133, 0.25);
+  color: #9f1239;
+}
+
+.ws-app-shell .ws-insight--warning {
+  background: linear-gradient(145deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: rgba(251, 191, 36, 0.35);
+  color: #92400e;
+}
+
+.ws-app-shell .ws-insight--info {
+  background: linear-gradient(145deg, #eff6ff 0%, #dbeafe 100%);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: #1e40af;
+}
+
+.ws-app-shell .ws-insight--success {
+  background: linear-gradient(145deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: rgba(52, 211, 153, 0.35);
+  color: #065f46;
+}
+
+/* Progress */
+.ws-app-shell .ws-progress-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ws-muted);
+  margin-bottom: 0.35rem;
+}
+
+.ws-app-shell .ws-progress-track {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(12, 18, 34, 0.06);
+  overflow: hidden;
+}
+
+.ws-app-shell .ws-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #34d399 0%, #10b981 55%, #059669 100%);
+  box-shadow: 0 0 12px rgba(16, 185, 129, 0.45);
+  transition: width 0.5s ease;
+}
+
+/* Quick actions */
+.ws-app-shell .ws-btn-gradient {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.72rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  border: none;
+  color: #fff !important;
+  background: linear-gradient(135deg, var(--ws-accent) 0%, var(--ws-accent-2) 100%);
+  box-shadow: 0 6px 20px rgba(79, 108, 248, 0.35);
+  transition:
+    filter 0.2s ease,
+    transform 0.15s ease;
+}
+
+.ws-app-shell .ws-btn-gradient:hover {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  color: #fff !important;
+}
+
+.ws-app-shell .ws-btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.72rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  font-size: 0.9375rem;
+  text-decoration: none;
+  color: var(--ws-accent) !important;
+  background: rgba(79, 108, 248, 0.08);
+  border: 1px solid rgba(79, 108, 248, 0.28);
+  transition:
+    background 0.2s ease,
+    transform 0.15s ease;
+}
+
+.ws-app-shell .ws-btn-outline:hover {
+  background: rgba(79, 108, 248, 0.14);
+  color: var(--ws-accent-2) !important;
+  transform: translateY(-1px);
+}
+
+.ws-app-shell .ws-tip {
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--ws-muted);
+  margin-top: 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  background: rgba(79, 108, 248, 0.06);
+  border: 1px solid rgba(79, 108, 248, 0.08);
+}
+
+/* Status chips */
+.ws-app-shell .ws-status-chip {
+  border-radius: 12px;
+  padding: 0.55rem 0.75rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(12, 18, 34, 0.06);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ws-ink-soft);
+  transition: box-shadow 0.2s ease;
+}
+
+.ws-app-shell .ws-status-chip:hover {
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06);
+}
+
+.ws-app-shell .ws-status-chip strong {
+  font-family: var(--ws-display);
+  font-weight: 700;
+  color: var(--ws-ink);
+  font-size: 1rem;
+}
+
+/* Task list */
+.ws-app-shell .ws-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ws-app-shell .ws-task-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px dashed rgba(12, 18, 34, 0.08);
+}
+
+.ws-app-shell .ws-task-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ws-app-shell .ws-task-title {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--ws-ink);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ws-app-shell .ws-task-meta {
+  font-size: 0.78rem;
+  color: var(--ws-muted);
+  margin-top: 0.2rem;
+}
+
+/* Badges */
+.ws-app-shell .ws-badge {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+
+.ws-app-shell .ws-badge--pending {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.ws-app-shell .ws-badge--in_progress {
+  background: rgba(79, 108, 248, 0.14);
+  color: #3730a3;
+  border-color: rgba(79, 108, 248, 0.25);
+}
+
+.ws-app-shell .ws-badge--submitted {
+  background: #e0f2fe;
+  color: #0369a1;
+  border-color: rgba(14, 165, 233, 0.3);
+}
+
+.ws-app-shell .ws-badge--verified {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+.ws-app-shell .ws-badge--rejected {
+  background: #ffe4e6;
+  color: #9f1239;
+  border-color: rgba(251, 113, 133, 0.35);
+}
+
+.ws-app-shell .ws-badge--cancelled {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.25);
+}
+
+.ws-app-shell .ws-badge--due {
+  background: #1e293b;
+  color: #f8fafc;
+  border-color: #334155;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-app-shell .ws-metric:hover,
+  .ws-app-shell .ws-insight:hover,
+  .ws-app-shell .ws-btn-gradient:hover,
+  .ws-app-shell .ws-btn-outline:hover {
+    transform: none;
+  }
+}
+
+/* —— Layout widths (Bootstrap cols don’t set fixed sidebar width) —— */
+.ws-app-shell .sidebar-sticky {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  height: 100vh;
+  height: 100dvh;
+  z-index: 900;
+  transition: transform 0.3s ease;
+}
+
+.ws-app-shell .main-content {
+  margin-top: 56px;
+  margin-left: 0;
+}
+
+@media (min-width: 768px) {
+  .ws-app-shell .sidebar-sticky {
+    width: 25%;
+    max-width: 260px;
+    transform: translateX(0);
+  }
+
+  .ws-app-shell .main-content {
+    margin-left: min(25%, 260px);
+  }
+}
+
+@media (min-width: 992px) {
+  .ws-app-shell .sidebar-sticky {
+    width: 16.666667%;
+    max-width: 240px;
+  }
+
+  .ws-app-shell .main-content {
+    margin-left: min(16.666667%, 240px);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .ws-app-shell .sidebar-sticky {
+    width: min(260px, 82vw);
+    transform: translateX(-100%);
+    padding-top: 4rem !important;
+  }
+
+  .ws-app-shell .sidebar-sticky.active {
+    transform: translateX(0);
+  }
+
+  .ws-app-shell .main-content {
+    margin-left: 0;
+  }
+}
+
+.ws-app-shell .sidebar-sticky .d-flex {
+  min-height: 100%;
+}
+
+.ws-app-shell .sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 15, 30, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 850;
+}
+
+/* —— Create user (admin /user/create) —— */
+.ws-app-shell .ws-register-panel {
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ws-app-shell .ws-register-hero {
+  margin-bottom: 1.35rem;
+}
+
+.ws-app-shell .ws-register-avatar-ring {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  padding: 2px;
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #38bdf8, #6366f1, #a78bfa);
+  box-shadow: 0 8px 22px rgb(99 102 241 / 0.25);
+}
+
+.ws-app-shell .ws-register-avatar-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: rgb(15 39 68 / 0.96);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.35rem;
+  color: #e0f2fe;
+}
+
+.ws-app-shell .ws-register-form .form-control,
+.ws-app-shell .ws-register-form .form-select {
+  border-radius: 10px;
+  border: 1px solid rgba(12, 18, 34, 0.1);
+  font-size: 0.9375rem;
+  background: #fff;
+}
+
+.ws-app-shell .ws-register-form .form-floating > label {
+  color: var(--ws-muted);
+}
+
+.ws-app-shell .ws-register-form .form-control:focus,
+.ws-app-shell .ws-register-form .form-select:focus {
+  border-color: var(--ws-accent);
+  box-shadow: 0 0 0 3px var(--ws-accent-soft);
+}
+
+.ws-app-shell .ws-register-submit {
+  padding-top: 0.8rem;
+  padding-bottom: 0.8rem;
+  font-size: 0.9375rem;
+  cursor: pointer;
+  border: none;
+}
+
+.ws-app-shell .ws-register-submit:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* —— Task list (admin /tasks) —— */
+.ws-app-shell .task-list-page {
+  max-width: 100%;
+}
+
+.ws-app-shell .task-list-panel.ws-panel {
+  height: auto;
+  min-height: 0;
+  padding: 1.25rem 1.35rem;
+}
+
+.ws-app-shell .task-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.ws-app-shell .task-toolbar-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-family: var(--ws-display);
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+  color: var(--ws-ink);
+}
+
+.ws-app-shell .task-toolbar-title i {
+  color: var(--ws-accent);
+  font-size: 1.35rem;
+}
+
+.ws-app-shell .task-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ws-app-shell .ws-btn-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+  background: #fff;
+}
+
+.ws-app-shell .ws-btn-tool:hover {
+  transform: translateY(-1px);
+}
+
+.ws-app-shell .ws-btn-tool--excel {
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(209, 250, 229, 0.5);
+}
+
+.ws-app-shell .ws-btn-tool--excel:hover {
+  background: rgba(167, 243, 208, 0.85);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+.ws-app-shell .ws-btn-tool--pdf {
+  color: #b91c1c;
+  border-color: rgba(248, 113, 113, 0.4);
+  background: rgba(254, 226, 226, 0.45);
+}
+
+.ws-app-shell .ws-btn-tool--pdf:hover {
+  background: rgba(254, 202, 202, 0.75);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.15);
+}
+
+.ws-app-shell .ws-btn-tool--primary {
+  color: #fff;
+  background: linear-gradient(135deg, var(--ws-accent) 0%, var(--ws-accent-2) 100%);
+  box-shadow: 0 4px 14px rgba(79, 108, 248, 0.35);
+  border: none;
+}
+
+.ws-app-shell .ws-btn-tool--primary:hover {
+  filter: brightness(1.05);
+  box-shadow: 0 6px 18px rgba(79, 108, 248, 0.4);
+}
+
+.ws-app-shell .ws-btn-tool--reset {
+  color: var(--ws-muted);
+  border-color: rgba(12, 18, 34, 0.12);
+  background: #fff;
+}
+
+.ws-app-shell .ws-btn-tool--reset:hover {
+  color: var(--ws-ink-soft);
+  background: rgba(12, 18, 34, 0.04);
+  border-color: rgba(12, 18, 34, 0.18);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+}
+
+.ws-app-shell .task-filter-bar {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.15rem;
+  padding: 1rem 1.05rem;
+  border-radius: var(--ws-radius-lg);
+  background: rgba(79, 108, 248, 0.04);
+  border: 1px solid rgba(12, 18, 34, 0.05);
+}
+
+@media (min-width: 768px) {
+  .ws-app-shell .task-filter-bar {
+    grid-template-columns:
+      minmax(0, 1.32fr) minmax(0, 0.7fr) minmax(0, 0.92fr) minmax(0, 1.02fr) minmax(6.25rem, 7.5rem);
+    align-items: end;
+  }
+
+  /* User “My tasks”: search, status, due range, reset (no assignees) */
+  .ws-app-shell .task-filter-bar.task-filter-bar--my-tasks {
+    grid-template-columns:
+      minmax(0, 1.45fr) minmax(0, 0.78fr) minmax(0, 1.05fr) minmax(6.25rem, 7.5rem);
+  }
+}
+
+.ws-app-shell .task-filter-field--reset {
+  min-width: 0;
+}
+
+.ws-app-shell .task-filter-reset-btn {
+  width: 100%;
+  min-height: 38px;
+  justify-content: center;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  padding: 0.45rem 0.5rem;
+}
+
+.ws-app-shell .task-filter-field label {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ws-muted);
+  margin-bottom: 0.35rem;
+}
+
+.ws-app-shell .task-filter-field .form-control,
+.ws-app-shell .task-filter-field .form-select {
+  border-radius: 10px;
+  border: 1px solid rgba(12, 18, 34, 0.1);
+  font-size: 0.875rem;
+  padding: 0.5rem 0.75rem;
+  background: #fff;
+}
+
+.ws-app-shell .task-filter-field .form-control:focus,
+.ws-app-shell .task-filter-field .form-select:focus {
+  border-color: var(--ws-accent);
+  box-shadow: 0 0 0 3px var(--ws-accent-soft);
+}
+
+.ws-app-shell .task-filter-bar .multiselect {
+  min-height: 38px;
+  font-size: 0.875rem;
+}
+
+.ws-app-shell .task-filter-bar .multiselect__tags {
+  min-height: 38px !important;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(12, 18, 34, 0.1) !important;
+  background: #fff !important;
+}
+
+.ws-app-shell .task-filter-bar .multiselect__tag {
+  background: rgba(79, 108, 248, 0.12) !important;
+  color: #3730a3 !important;
+}
+
+.ws-app-shell .task-table-wrap {
+  border-radius: var(--ws-radius-lg);
+  border: 1px solid rgba(12, 18, 34, 0.06);
+  overflow: hidden;
+  background: #fff;
+}
+
+.ws-app-shell .task-table {
+  width: 100%;
+  margin: 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.ws-app-shell .task-table thead th {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ws-muted);
+  background: rgba(79, 108, 248, 0.07);
+  border-bottom: 1px solid rgba(12, 18, 34, 0.06);
+  padding: 0.7rem 0.85rem;
+  white-space: nowrap;
+}
+
+.ws-app-shell .task-table tbody td {
+  padding: 0.65rem 0.85rem;
+  border-bottom: 1px solid rgba(12, 18, 34, 0.05);
+  vertical-align: middle;
+  font-size: 0.875rem;
+  color: var(--ws-ink);
+}
+
+/* Flex wrapper so multi-line title/desc/actions share one vertical center */
+.ws-app-shell .task-cell-inner {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 2.85rem;
+}
+
+.ws-app-shell .task-cell-inner--actions {
+  justify-content: flex-end;
+}
+
+.ws-app-shell .task-cell-inner--actions .task-action-group {
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.ws-app-shell .task-cell-inner--assign {
+  align-items: center;
+  min-height: 2.85rem;
+}
+
+.ws-app-shell .task-cell-inner .task-action-group {
+  justify-content: flex-end;
+}
+
+.ws-app-shell .task-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ws-app-shell .task-table tbody tr:hover {
+  background: rgba(79, 108, 248, 0.035);
+}
+
+.ws-app-shell .task-cell-title {
+  font-weight: 600;
+  color: var(--ws-ink);
+  line-height: 1.35;
+  margin: 0;
+  width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.ws-app-shell .task-cell-desc {
+  color: var(--ws-muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  width: 100%;
+  word-break: break-word;
+}
+
+.ws-app-shell .task-cell-due {
+  font-size: 0.8125rem;
+  color: var(--ws-ink-soft);
+  white-space: nowrap;
+}
+
+.ws-app-shell .assign-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.5rem;
+  margin: 0.15rem 0.25rem 0.15rem 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 999px;
+  background: rgba(79, 108, 248, 0.1);
+  color: #3730a3;
+  border: 1px solid rgba(79, 108, 248, 0.15);
+  max-width: 100%;
+}
+
+.ws-app-shell .assign-more {
+  cursor: pointer;
+  background: rgba(12, 18, 34, 0.06);
+  color: var(--ws-muted);
+  border-color: transparent;
+}
+
+.ws-app-shell .task-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ws-app-shell .task-action-btn {
+  width: 2.1rem;
+  height: 2.1rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(12, 18, 34, 0.1);
+  background: #fff;
+  color: var(--ws-muted);
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.ws-app-shell .task-action-btn:hover:not(:disabled) {
+  background: rgba(79, 108, 248, 0.08);
+  color: var(--ws-accent);
+  border-color: rgba(79, 108, 248, 0.2);
+}
+
+.ws-app-shell .task-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ws-app-shell .task-action-btn.task-action-btn--verified-done:disabled {
+  opacity: 1;
+  cursor: default;
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(209, 250, 229, 0.75);
+  color: #065f46;
+}
+
+.ws-app-shell .task-action-btn--danger:hover:not(:disabled) {
+  background: rgba(254, 226, 226, 0.8);
+  color: #b91c1c;
+  border-color: rgba(248, 113, 113, 0.35);
+}
+
+.ws-app-shell .task-review-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 8px;
+  border: none;
+  background: rgba(16, 185, 129, 0.12);
+  color: #047857;
+  cursor: pointer;
+  margin-right: 0.25rem;
+}
+
+.ws-app-shell .task-review-link:hover {
+  background: rgba(16, 185, 129, 0.22);
+}
+
+.ws-app-shell .attachment-minimal {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.ws-app-shell .attachment-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid rgba(12, 18, 34, 0.08);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ws-app-shell .attachment-thumb:hover {
+  transform: scale(1.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+}
+
+.ws-app-shell .attachment-pdf-mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 8px;
+  background: rgba(79, 108, 248, 0.1);
+  color: var(--ws-accent);
+  text-decoration: none;
+  border: 1px solid rgba(79, 108, 248, 0.2);
+}
+
+.ws-app-shell .attachment-pdf-mini:hover {
+  background: rgba(79, 108, 248, 0.16);
+  color: var(--ws-accent-2);
+}
+
+.ws-app-shell .attachment-empty {
+  color: rgba(100, 116, 139, 0.55);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.ws-app-shell .task-table-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 0.5rem;
+}
+
+.ws-app-shell .task-table-footer .form-select {
+  border-radius: 10px;
+  border: 1px solid rgba(12, 18, 34, 0.1);
+  font-size: 0.8125rem;
+}
+
+/* Modals moved to body — no .ws-app-shell ancestor */
+.task-ws-modal .modal-dialog {
+  max-height: calc(100vh - 1.5rem);
+  margin: 0.75rem auto;
+}
+
+/* Above sidebar / chat (teleported to body) */
+.task-ws-modal.modal {
+  z-index: 2000;
+}
+
+body > .modal-backdrop.show {
+  z-index: 1990;
+}
+
+.task-ws-modal .modal-content {
+  border-radius: 18px;
+  border: 1px solid rgba(12, 18, 34, 0.08);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.18);
+  max-height: calc(100vh - 1.5rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.task-ws-modal .task-modal-header {
+  flex-shrink: 0;
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 100%);
+  border-bottom: 1px solid rgba(12, 18, 34, 0.08);
+}
+
+/* Single scroll area — native controls, no clipped dropdowns */
+.task-ws-modal .task-modal-body {
+  overflow-y: auto;
+  overflow-x: hidden;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(70vh, 620px);
+  -webkit-overflow-scrolling: touch;
+}
+
+.task-ws-modal .task-assign-checkboxes {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid rgba(12, 18, 34, 0.12);
+  border-radius: 10px;
+  padding: 0.35rem 0.45rem;
+  background: #f8fafc;
+}
+
+.task-ws-modal .task-assign-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.45rem 0.5rem;
+  margin: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.task-ws-modal .task-assign-row:hover {
+  background: rgba(79, 108, 248, 0.07);
+}
+
+.task-ws-modal .task-assign-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.task-ws-modal .task-assign-role {
+  flex-shrink: 0;
+  text-transform: capitalize;
+  font-size: 0.7rem;
+}
+
+.task-ws-modal .modal-footer {
+  flex-shrink: 0;
+  background: #fff;
+  border-top: 1px solid rgba(12, 18, 34, 0.08);
+  border-radius: 0 0 18px 18px;
+}
+
+.task-ws-modal .modal-title {
+  font-family: 'Outfit', 'DM Sans', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0c1222;
+}
+
+.task-ws-modal .btn-primary {
+  background: linear-gradient(135deg, #4f6cf8 0%, #7c5cff 100%);
+  border: none;
+  font-weight: 600;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(79, 108, 248, 0.35);
+}
+
+.task-ws-modal .btn-primary:hover {
+  filter: brightness(1.05);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-app-shell .ws-btn-tool:hover,
+  .ws-app-shell .attachment-thumb:hover {
+    transform: none;
+  }
+}

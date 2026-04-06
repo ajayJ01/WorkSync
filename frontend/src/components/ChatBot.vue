@@ -151,12 +151,27 @@
       </div>
     </transition>
 
-    <button type="button" class="launcher" @click="toggleChat" aria-label="Open chat">
-      <span class="launcher-bg" />
-      <transition name="icon-flip" mode="out-in">
-        <i v-if="isOpen" key="c" class="bi bi-x-lg launcher-ic"></i>
-        <i v-else key="o" class="bi bi-stars launcher-ic"></i>
-      </transition>
+    <button
+      type="button"
+      class="launcher"
+      @click="toggleChat"
+      :aria-label="isOpen ? 'Close chat' : 'Open AI chat assistant'"
+    >
+      <span class="launcher-agent" aria-hidden="true">
+        <span class="launcher-agent-ring">
+          <span class="launcher-agent-inner">
+            <transition name="icon-flip" mode="out-in">
+              <i v-if="isOpen" key="c" class="bi bi-x-lg launcher-agent-ic launcher-agent-ic--solo"></i>
+              <span v-else key="mark" class="launcher-mark">
+                <i class="bi bi-chat-dots-fill launcher-mark-chat" aria-hidden="true"></i>
+                <span class="launcher-mark-ai" title="AI agent" aria-hidden="true">
+                  <i class="bi bi-stars"></i>
+                </span>
+              </span>
+            </transition>
+          </span>
+        </span>
+      </span>
       <span v-if="unreadCount > 0 && !isOpen" class="launcher-badge">{{ unreadCount > 9 ? '9+' : unreadCount }}</span>
     </button>
   </div>
@@ -598,8 +613,8 @@ const doExport = (format) => {
 <style scoped>
 .chat-widget {
   position: fixed;
-  bottom: 22px;
-  right: 22px;
+  bottom: max(28px, calc(env(safe-area-inset-bottom, 0px) + 16px));
+  right: max(24px, calc(env(safe-area-inset-right, 0px) + 12px));
   z-index: 1050;
   display: flex;
   flex-direction: column;
@@ -1054,36 +1069,151 @@ const doExport = (format) => {
 
 .launcher {
   position: relative;
-  width: 58px;
-  height: 58px;
+  width: 60px;
+  height: 60px;
   border: none;
   border-radius: 18px;
   cursor: pointer;
   padding: 0;
   overflow: visible;
+  background: transparent;
 }
 
-.launcher-bg {
-  position: absolute;
-  inset: 0;
-  border-radius: 18px;
-  background: linear-gradient(145deg, #4f46e5, #2563eb, #7c3aed);
+/* Header-aligned ring + inner: chat (dots) + agent (sparkle orb) */
+.launcher-agent {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.launcher-agent-ring {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  padding: 2px;
+  background: linear-gradient(125deg, #22d3ee, #6366f1 45%, #a78bfa 78%, #38bdf8);
+  background-size: 220% 220%;
+  animation: launcher-ring-flow 7s ease-in-out infinite;
   box-shadow:
-    0 10px 28px rgb(79 70 229 / 0.45),
-    0 0 0 1px rgb(255 255 255 / 0.12) inset;
-  transition: transform 0.2s ease;
+    0 10px 28px rgb(99 102 241 / 0.42),
+    0 0 0 1px rgb(255 255 255 / 0.16) inset,
+    0 0 40px rgb(56 189 248 / 0.22);
+  transition:
+    transform 0.22s ease,
+    box-shadow 0.22s ease;
 }
 
-.launcher:hover .launcher-bg {
+@keyframes launcher-ring-flow {
+  0%,
+  100% {
+    background-position: 0% 40%;
+  }
+  50% {
+    background-position: 100% 60%;
+  }
+}
+
+.launcher:hover .launcher-agent-ring {
   transform: scale(1.06);
+  box-shadow:
+    0 14px 34px rgb(99 102 241 / 0.5),
+    0 0 0 1px rgb(255 255 255 / 0.22) inset,
+    0 0 48px rgb(129 140 248 / 0.35);
 }
 
-.launcher-ic {
+.launcher:active .launcher-agent-ring {
+  transform: scale(1.02);
+}
+
+.launcher-agent-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse 120% 80% at 30% 20%, rgb(56 189 248 / 0.18), transparent 55%),
+    linear-gradient(165deg, rgb(15 39 68 / 0.98) 0%, rgb(8 20 40 / 0.99) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
-  z-index: 1;
-  font-size: 1.35rem;
-  color: #fff;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.2));
+  overflow: visible;
+}
+
+.launcher-mark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.launcher-mark-chat {
+  font-size: 1.28rem;
+  color: #e0f2fe;
+  filter: drop-shadow(0 1px 3px rgb(0 0 0 / 0.35));
+  margin: 0 0 2px 2px;
+}
+
+.launcher-mark-ai {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(140deg, #fae8ff, #a5f3fc 40%, #c4b5fd);
+  color: #1e1b4b;
+  font-size: 0.62rem;
+  line-height: 1;
+  border: 2px solid rgb(15 39 68 / 0.92);
+  box-shadow:
+    0 2px 10px rgb(99 102 241 / 0.45),
+    0 0 0 1px rgb(255 255 255 / 0.35) inset;
+  animation: launcher-ai-pulse 2.8s ease-in-out infinite;
+}
+
+@keyframes launcher-ai-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 2px 10px rgb(99 102 241 / 0.45),
+      0 0 0 1px rgb(255 255 255 / 0.35) inset;
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow:
+      0 4px 14px rgb(56 189 248 / 0.5),
+      0 0 0 1px rgb(255 255 255 / 0.45) inset;
+  }
+}
+
+.launcher-agent-ic {
+  font-size: 1.2rem;
+  color: #e0f2fe;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.28));
+}
+
+.launcher-agent-ic--solo {
+  font-size: 1.22rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .launcher-agent-ring {
+    animation: none;
+    background-size: 100% 100%;
+    background: linear-gradient(135deg, #38bdf8, #6366f1, #a78bfa);
+  }
+
+  .launcher-mark-ai {
+    animation: none;
+  }
 }
 
 .launcher-badge {
