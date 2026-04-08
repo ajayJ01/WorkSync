@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import axios from '../utils/axios';
+import { clearChatStorageForCurrentUser } from '../utils/chatStorage';
 
 export const useAuthStore = defineStore('auth', {
     state: () => ({
@@ -14,6 +15,7 @@ export const useAuthStore = defineStore('auth', {
             localStorage.setItem('token', this.token);
         },
         logout() {
+            clearChatStorageForCurrentUser();
             this.token = null;
             this.user = null;
             localStorage.removeItem('token');

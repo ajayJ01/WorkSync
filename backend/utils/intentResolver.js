@@ -1,0 +1,190 @@
+const Task = require("../models/Task");
+const { parseDueDateFromText } = require("./parseDueDate");
+const { escapeRegexTruncated } = require("./regexSafe");
+const { extractTitleHintVariants } = require("./chatTitleHint");
+
+function squeezeTitleKey(s) {
+  return String(s || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function levenshteinLimited(a, b, maxDist = 2) {
+  if (a === b) return 0;
+  const al = a.length;
+  const bl = b.length;
+  if (Math.abs(al - bl) > maxDist) return maxDist + 1;
+  const prev = new Array(bl + 1);
+  const curr = new Array(bl + 1);
+  for (let j = 0; j <= bl; j += 1) prev[j] = j;
+  for (let i = 1; i <= al; i += 1) {
+    curr[0] = i;
+    let rowMin = curr[0];
+    for (let j = 1; j <= bl; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+      if (curr[j] < rowMin) rowMin = curr[j];
+    }
+    if (rowMin > maxDist) return maxDist + 1;
+    for (let j = 0; j <= bl; j += 1) prev[j] = curr[j];
+  }
+  return prev[bl];
+}
+
+/** "kar do" vs title "krdo" — regex fail; squeeze + edit distance */
+function titleHintMatchScore(titleSq, needleSq) {
+  if (!titleSq || !needleSq) return 999;
+  if (titleSq === needleSq) return 0;
+  if (needleSq.length >= 4 && titleSq.includes(needleSq)) return 1;
+  if (titleSq.length >= 4 && needleSq.includes(titleSq)) return 2;
+  const d = levenshteinLimited(titleSq, needleSq, 3);
+  if (d <= 2) return 3 + d;
+  return 999;
+}
+
+/**
+ * @param {string} userId
+ * @param {string[]} hints — e.g. from extractTitleHintVariants
+ * @param {{ limit?: number, maxScan?: number }} opts
+ */
+async function fuzzyTasksByTitleHints(userId, hints, opts = {}) {
+  const limit = opts.limit ?? 6;
+  const maxScan = opts.maxScan ?? 100;
+  const visibility = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
+  const needles = [...new Set((hints || []).map(squeezeTitleKey).filter((n) => n.length >= 2))];
+  if (!needles.length) return [];
+
+  const tasks = await Task.find(visibility)
+    .select("_id title status dueDate")
+    .sort({ updatedAt: -1 })
+    .limit(maxScan)
+    .lean();
+
+  const scored = [];
+  for (const t of tasks) {
+    const ts = squeezeTitleKey(t.title);
+    if (!ts) continue;
+    let best = 999;
+    for (const n of needles) {
+      const s = titleHintMatchScore(ts, n);
+      if (s < best) best = s;
+    }
+    if (best <= 6) scored.push({ task: t, score: best });
+  }
+  scored.sort((a, b) => a.score - b.score);
+  return scored.slice(0, limit).map((x) => x.task);
+}
+
+const SUPPORTED_TOOLS = new Set([
+  "getTasks",
+  "createSimpleTask",
+  "updateTaskFile",
+  "updateTaskTitle",
+  "updateTaskDescription",
+  "assignTask",
+  "startTask",
+  "cancelTask",
+  "cancelPendingTasks",
+  "startPendingTasks",
+  "updateTaskDueDate",
+  "extendPendingDueDate",
+  "verifyTask",
+  "exportTasks",
+  "unknown",
+]);
+
+function sanitizeAgentResult(aiRes) {
+  const out = aiRes && typeof aiRes === "object" ? { ...aiRes } : {};
+  out.tool = String(out.tool || "unknown").trim();
+  if (!SUPPORTED_TOOLS.has(out.tool)) out.tool = "unknown";
+  out.input = out.input && typeof out.input === "object" ? out.input : {};
+  const conf = Number(out.confidence);
+  out.confidence = Number.isFinite(conf) ? Math.min(Math.max(conf, 0), 1) : null;
+  out.needs_clarification = Boolean(out.needs_clarification);
+  out.clarification_question = String(out.clarification_question || "").trim();
+  return out;
+}
+
+function needsClarification(aiRes) {
+  if (!aiRes || aiRes.tool === "unknown") return true;
+  if (aiRes.needs_clarification) return true;
+  if (aiRes.confidence != null && aiRes.confidence < 0.55) return true;
+  return false;
+}
+
+function sameLocalSlot(a, b) {
+  if (!(a instanceof Date) || !(b instanceof Date)) return false;
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate() &&
+    a.getHours() === b.getHours() &&
+    a.getMinutes() === b.getMinutes()
+  );
+}
+
+async function retrieveTaskCandidates(userId, text, limit = 3, rawText = null) {
+  const visibility = { $or: [{ createdBy: userId }, { assignedTo: userId }] };
+  const due = parseDueDateFromText(String(text || ""));
+  const titleVariants = extractTitleHintVariants(text, rawText);
+  const escs = titleVariants.map((h) => escapeRegexTruncated(h)).filter(Boolean);
+
+  let list = [];
+  if (due && !isNaN(due.getTime())) {
+    const all = await Task.find(visibility)
+      .select("_id title dueDate status")
+      .sort({ updatedAt: -1 })
+      .lean();
+    list = all.filter((t) => t?.dueDate && sameLocalSlot(new Date(t.dueDate), due));
+  } else if (escs.length) {
+    const orTitle = escs.flatMap((esc) => [{ title: { $regex: esc, $options: "i" } }]);
+    list = await Task.find({
+      $and: [visibility, { $or: orTitle }],
+    })
+      .select("_id title dueDate status")
+      .sort({ updatedAt: -1 })
+      .limit(Math.max(limit * 4, 12))
+      .lean();
+    const seen = new Set();
+    list = list.filter((t) => {
+      const id = String(t._id);
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+    list = list.slice(0, limit);
+  } else {
+    list = await Task.find(visibility)
+      .select("_id title dueDate status")
+      .sort({ updatedAt: -1 })
+      .limit(limit)
+      .lean();
+  }
+
+  return list.slice(0, limit).map((t) => ({
+    taskId: String(t._id),
+    title: t.title,
+    status: t.status,
+    dueDate: t.dueDate,
+  }));
+}
+
+function buildClarificationMessage(aiRes, candidates) {
+  if (aiRes?.clarification_question) return aiRes.clarification_question;
+  if (!candidates?.length) {
+    return "Mujhe exact action clear nahi hua. Short me bolo: kaunsi task aur kya update karna hai (title/status/due/assign/file).";
+  }
+  const lines = candidates
+    .map((c, i) => `${i + 1}) ${c.title} (${c.status})${c.dueDate ? ` - due ${new Date(c.dueDate).toLocaleString()}` : ""}`)
+    .join("\n");
+  return `Kaunsi task pe action chahiye? Reply me task ID ya option number bhejo:\n${lines}`;
+}
+
+module.exports = {
+  sanitizeAgentResult,
+  needsClarification,
+  retrieveTaskCandidates,
+  buildClarificationMessage,
+  fuzzyTasksByTitleHints,
+  squeezeTitleKey,
+};

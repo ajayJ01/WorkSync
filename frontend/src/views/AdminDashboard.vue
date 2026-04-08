@@ -1,26 +1,34 @@
 <template>
-  <div class="container-fluid min-vh-100 d-flex flex-column bg-light">
-    <!-- Top navbar (Sticky) -->
-    <div class="header-sticky d-flex justify-content-between align-items-center p-3 bg-white shadow-sm">
-      <div class="d-flex align-items-center">
-        <button class="hamburger-menu d-md-none me-3" @click="toggleSidebar">
-          <i class="bi bi-list"></i>
+  <div class="container-fluid min-vh-100 d-flex flex-column ws-app-shell">
+    <div class="ws-header d-flex justify-content-between align-items-center">
+      <div class="d-flex align-items-center gap-2">
+        <button class="hamburger-menu d-md-none btn btn-link text-decoration-none p-1" type="button" @click="toggleSidebar">
+          <i class="bi bi-list fs-4"></i>
         </button>
-        <h4 class="mb-0 text-dark fw-semibold d-flex align-items-center">
-          <img src="/logo.png" alt="WorkSync Logo" class="header-logo" /> WorkSync
-        </h4>
+        <div class="ws-header-brand">
+          <div class="ws-header-logo-wrap">
+            <img src="/logo.png" alt="" class="header-logo" width="26" height="26" />
+          </div>
+          <h1 class="ws-header-title">WorkSync</h1>
+        </div>
       </div>
-      <span class="text-dark fw-semibold"> 👋 Hello, {{ userName }} </span>
+      <div class="ws-header-user">
+        <span class="ws-user-avatar" aria-hidden="true">{{ userInitials }}</span>
+        <div class="ws-user-text">
+          <span class="ws-user-hi">Hello</span>
+          <span class="ws-user-name">{{ userName || 'Admin' }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="row flex-grow-1">
-      <!-- Sidebar (Sticky) -->
-      <div ref="sidebar" class="col-md-3 col-lg-2 bg-white p-4 shadow-sm sidebar-sticky">
+      <div ref="sidebar" class="col-md-3 col-lg-2 p-3 p-md-4 sidebar-sticky">
         <div class="d-flex flex-column h-100">
           <div>
-            <ul class="nav flex-column gap-2 mt-1">
+            <p class="ws-sidebar-label">Navigate</p>
+            <ul class="nav flex-column gap-1 mt-0">
               <li class="nav-item">
-                <RouterLink to="/dashboard" class="mt-5 nav-link nav-modern" active-class="active-modern">
+                <RouterLink to="/dashboard" class="nav-link nav-modern" active-class="active-modern">
                   <i class="bi bi-speedometer2 me-2"></i>Dashboard
                 </RouterLink>
               </li>
@@ -37,37 +45,336 @@
             </ul>
           </div>
 
-          <!-- Logout button pinned to bottom -->
           <div class="mt-auto pt-3 border-top">
-            <button @click="logout"
-              class="btn btn-light border w-100 text-danger fw-semibold d-flex align-items-center justify-content-center gap-2">
+            <button
+              type="button"
+              class="btn w-100 d-flex align-items-center justify-content-center gap-2 ws-logout-btn"
+              @click="logout"
+            >
               <i class="bi bi-box-arrow-right"></i> Logout
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Main content -->
       <div class="col d-flex flex-column flex-grow-1 main-content">
-        <router-view class="flex-grow-1" />
+        <div v-if="isDashboardRoute" class="dashboard-wrap p-3 p-md-4">
+          <div class="ws-hero mb-3 mb-md-4">
+            <div>
+              <p class="ws-hero-kicker">Overview</p>
+              <h2 class="ws-hero-title">Admin Dashboard</h2>
+              <p class="ws-hero-sub">Live productivity and team task insights</p>
+            </div>
+            <div class="ws-hero-meta">
+              <i class="bi bi-arrow-clockwise" aria-hidden="true"></i>
+              <span>Last refresh: {{ lastRefreshLabel }}</span>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-6 col-lg-3" v-for="card in summaryCards" :key="card.label">
+              <div class="ws-metric">
+                <div class="ws-metric-top">
+                  <span
+                    class="ws-metric-icon"
+                    :class="{
+                      'ws-metric-icon--violet': card.tone === 'violet',
+                      'ws-metric-icon--amber': card.tone === 'amber',
+                      'ws-metric-icon--rose': card.tone === 'rose',
+                      'ws-metric-icon--teal': card.tone === 'teal',
+                    }"
+                  >
+                    <i :class="['bi', card.icon]" aria-hidden="true"></i>
+                  </span>
+                  <span class="ws-metric-label">{{ card.label }}</span>
+                </div>
+                <div class="ws-metric-value">{{ card.value }}</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3 mb-3">
+            <div class="col-12 col-xl-8">
+              <div class="ws-panel h-100">
+                <h3 class="ws-panel-title">Priority insights</h3>
+                <div class="row g-2">
+                  <div class="col-6 col-md-3">
+                    <div class="ws-insight ws-insight--danger">
+                      <div class="ws-insight-head">
+                        <span class="ws-insight-label">Overdue</span>
+                        <i class="bi bi-exclamation-octagon" aria-hidden="true"></i>
+                      </div>
+                      <div class="ws-insight-value">{{ priorityInsights.overdue }}</div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="ws-insight ws-insight--warning">
+                      <div class="ws-insight-head">
+                        <span class="ws-insight-label">Due today</span>
+                        <i class="bi bi-sun" aria-hidden="true"></i>
+                      </div>
+                      <div class="ws-insight-value">{{ priorityInsights.dueToday }}</div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="ws-insight ws-insight--info">
+                      <div class="ws-insight-head">
+                        <span class="ws-insight-label">Next 3 days</span>
+                        <i class="bi bi-calendar3" aria-hidden="true"></i>
+                      </div>
+                      <div class="ws-insight-value">{{ priorityInsights.next3Days }}</div>
+                    </div>
+                  </div>
+                  <div class="col-6 col-md-3">
+                    <div class="ws-insight ws-insight--success">
+                      <div class="ws-insight-head">
+                        <span class="ws-insight-label">Completion</span>
+                        <i class="bi bi-patch-check" aria-hidden="true"></i>
+                      </div>
+                      <div class="ws-insight-value">{{ completionRate }}%</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="mt-3 pt-1">
+                  <div class="ws-progress-labels">
+                    <span>Task completion health</span>
+                    <span>{{ completionRate }}%</span>
+                  </div>
+                  <div class="ws-progress-track" role="progressbar" :aria-valuenow="completionRate" aria-valuemin="0" aria-valuemax="100">
+                    <div class="ws-progress-fill" :style="{ width: `${completionRate}%` }"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-xl-4">
+              <div class="ws-panel h-100">
+                <h3 class="ws-panel-title">Quick actions</h3>
+                <div class="d-grid gap-2">
+                  <RouterLink to="/tasks" class="ws-btn-gradient w-100 text-center">
+                    <i class="bi bi-kanban" aria-hidden="true"></i>
+                    Open all tasks
+                  </RouterLink>
+                  <RouterLink to="/user/create" class="ws-btn-outline w-100 text-center">
+                    <i class="bi bi-person-plus" aria-hidden="true"></i>
+                    Create new user
+                  </RouterLink>
+                </div>
+                <p class="ws-tip mb-0">
+                  Tip: use the AI chat for quick operations — task updates stay synced in real time.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-12 col-xl-7">
+              <div class="ws-panel h-100">
+                <h3 class="ws-panel-title">Task status breakdown</h3>
+                <div class="row g-2">
+                  <div class="col-6 col-md-4" v-for="item in statusBreakdown" :key="item.key">
+                    <div class="ws-status-chip">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="col-12 col-xl-5">
+              <div class="ws-panel h-100">
+                <h3 class="ws-panel-title">Recent tasks</h3>
+                <div v-if="recentTasks.length === 0" class="text-muted small">No tasks found.</div>
+                <div v-else class="ws-task-list">
+                  <div class="ws-task-item" v-for="t in recentTasks" :key="t._id">
+                    <div class="min-w-0 flex-grow-1">
+                      <div class="ws-task-title">{{ t.title }}</div>
+                      <div class="ws-task-meta">
+                        {{ formatDueDate(t.dueDate) }} · {{ assigneeLabel(t) }}
+                      </div>
+                    </div>
+                    <span class="ws-badge" :class="statusBadgeClass(t.status)">{{ formatStatusLabel(t.status) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <router-view v-else class="flex-grow-1" />
       </div>
     </div>
 
-    <!-- Backdrop for mobile sidebar -->
     <div v-if="isSidebarOpen" class="sidebar-backdrop d-md-none" @click="toggleSidebar"></div>
   </div>
 </template>
 
 <script setup>
 import { useRouter } from "vue-router";
-import { ref, onMounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
+import { useRoute } from "vue-router";
 import { useToast } from "@/composables/useToast";
+import { clearChatStorageForCurrentUser } from "@/utils/chatStorage";
+import api from "@/services/api";
 const toast = useToast();
 
 const userName = ref("");
 const router = useRouter();
+const route = useRoute();
 const sidebar = ref(null);
 const isSidebarOpen = ref(false);
+const dashboardStats = ref({
+  totalTasks: 0,
+  pending: 0,
+  in_progress: 0,
+  submitted: 0,
+  verified: 0,
+  rejected: 0,
+  cancelled: 0,
+  due: 0,
+  users: 0,
+});
+const allTasks = ref([]);
+const recentTasks = ref([]);
+const lastRefreshAt = ref(null);
+let refreshTimer = null;
+const isDashboardRoute = computed(() => route.path === "/dashboard");
+
+const userInitials = computed(() => {
+  const n = userName.value?.trim() || "?";
+  const parts = n.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return n.slice(0, 2).toUpperCase();
+});
+
+const summaryCards = computed(() => [
+  { label: "Total tasks", value: dashboardStats.value.totalTasks, icon: "bi-kanban", tone: "default" },
+  { label: "Pending", value: dashboardStats.value.pending, icon: "bi-hourglass-split", tone: "amber" },
+  { label: "Due / expired", value: dashboardStats.value.due, icon: "bi-calendar2-event", tone: "rose" },
+  { label: "Users", value: dashboardStats.value.users, icon: "bi-people", tone: "violet" },
+]);
+
+const completionRate = computed(() => {
+  const total = dashboardStats.value.totalTasks || 0;
+  if (!total) return 0;
+  const done = (dashboardStats.value.verified || 0) + (dashboardStats.value.cancelled || 0);
+  return Math.round((done / total) * 100);
+});
+
+const priorityInsights = computed(() => {
+  const now = new Date();
+  const startToday = new Date(now);
+  startToday.setHours(0, 0, 0, 0);
+  const endToday = new Date(now);
+  endToday.setHours(23, 59, 59, 999);
+  const next3 = new Date(endToday);
+  next3.setDate(next3.getDate() + 3);
+
+  const activeStatuses = new Set(["pending", "in_progress", "submitted", "due"]);
+  let overdue = 0;
+  let dueToday = 0;
+  let next3Days = 0;
+
+  allTasks.value.forEach((t) => {
+    if (!activeStatuses.has(t?.status)) return;
+    const d = t?.dueDate ? new Date(t.dueDate) : null;
+    if (!d || isNaN(d.getTime())) return;
+    if (d < startToday) overdue += 1;
+    if (d >= startToday && d <= endToday) dueToday += 1;
+    if (d > endToday && d <= next3) next3Days += 1;
+  });
+
+  return { overdue, dueToday, next3Days };
+});
+
+const statusBreakdown = computed(() => [
+  { key: "pending", label: "Pending", value: dashboardStats.value.pending },
+  { key: "in_progress", label: "In progress", value: dashboardStats.value.in_progress },
+  { key: "submitted", label: "Submitted", value: dashboardStats.value.submitted },
+  { key: "verified", label: "Verified", value: dashboardStats.value.verified },
+  { key: "rejected", label: "Rejected", value: dashboardStats.value.rejected },
+  { key: "cancelled", label: "Cancelled", value: dashboardStats.value.cancelled },
+  { key: "due", label: "Due", value: dashboardStats.value.due },
+]);
+
+const lastRefreshLabel = computed(() =>
+  lastRefreshAt.value ? new Date(lastRefreshAt.value).toLocaleTimeString() : "-"
+);
+
+const formatDueDate = (date) => {
+  if (!date) return "No due date";
+  return new Date(date).toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+const assigneeLabel = (task) => {
+  const list = Array.isArray(task?.assignedTo) ? task.assignedTo : [];
+  if (!list.length) return "Unassigned";
+  return list.map((u) => u?.name).filter(Boolean).join(", ");
+};
+
+const formatStatusLabel = (status) => {
+  if (status === "in_progress") return "In progress";
+  return status?.replace(/_/g, " ") || "";
+};
+
+const statusBadgeClass = (status) => {
+  const map = {
+    pending: "ws-badge--pending",
+    in_progress: "ws-badge--in_progress",
+    submitted: "ws-badge--submitted",
+    verified: "ws-badge--verified",
+    rejected: "ws-badge--rejected",
+    cancelled: "ws-badge--cancelled",
+    due: "ws-badge--due",
+  };
+  return map[status] || "ws-badge--cancelled";
+};
+
+const fetchDashboardData = async () => {
+  if (!isDashboardRoute.value) return;
+  const token = localStorage.getItem("token");
+  if (!token) return;
+  try {
+    const [tasksRes, usersRes] = await Promise.all([
+      api.get("/tasks", {
+        params: { page: 1, limit: 200 },
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      api.get("/users", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    ]);
+
+    const tasks = tasksRes?.data?.data?.tasks || [];
+    const stats = {
+      totalTasks: tasks.length,
+      pending: 0,
+      in_progress: 0,
+      submitted: 0,
+      verified: 0,
+      rejected: 0,
+      cancelled: 0,
+      due: 0,
+      users: Array.isArray(usersRes?.data?.data) ? usersRes.data.data.length : 0,
+    };
+    tasks.forEach((t) => {
+      const s = t?.status;
+      if (s && stats[s] != null) stats[s] += 1;
+    });
+    dashboardStats.value = stats;
+    allTasks.value = tasks;
+    recentTasks.value = [...tasks]
+      .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))
+      .slice(0, 6);
+    lastRefreshAt.value = Date.now();
+  } catch (err) {
+    console.error("Admin dashboard fetch error:", err);
+  }
+};
 
 const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value;
@@ -87,149 +394,36 @@ onMounted(() => {
     toast.success(loggedIn);
     localStorage.removeItem("loggedInSuccessMsg");
   }
+  fetchDashboardData();
+  refreshTimer = setInterval(() => {
+    if (!document.hidden) fetchDashboardData();
+  }, 15000);
+  window.addEventListener("tasks:changed", fetchDashboardData);
 });
 
-const logout = () => {
-  localStorage.removeItem("token");
-  localStorage.removeItem("role");
-  localStorage.setItem("logout", "Logged Out Successfully");
-  router.push("/login");
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer);
+  window.removeEventListener("tasks:changed", fetchDashboardData);
+});
+
+const logout = async () => {
+    try {
+        const token = localStorage.getItem("token");
+        
+        await api.post("/logout", {}, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+    } catch (err) {
+        console.error("Logout API error:", err);
+    } finally {
+        clearChatStorageForCurrentUser();
+        localStorage.removeItem("token");
+        localStorage.removeItem("role");
+        localStorage.removeItem("userName");
+        localStorage.setItem("logout", "Logged Out Successfully");
+        router.push("/login");
+    }
 };
 </script>
-
-<style scoped>
-.header-sticky {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 1000;
-  background-color: #fff;
-  padding: 10px 15px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.header-logo {
-  width: 35px;
-  height: 35px;
-  margin-right: 8px;
-  object-fit: contain;
-  border-radius: 50%;
-  background-color: #f1f5f9;
-  padding: 2px;
-}
-
-@media (max-width: 767px) {
-  .header-logo {
-    width: 24px;
-    height: 24px;
-    margin-right: 6px;
-  }
-}
-
-.hamburger-menu {
-  background: none;
-  border: none;
-  font-size: 1.5rem;
-  color: #333;
-  cursor: pointer;
-  padding: 0;
-}
-
-.hamburger-menu:focus {
-  outline: none;
-}
-
-.sidebar-sticky {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  height: 100vh;
-  z-index: 900;
-  transition: transform 0.3s ease;
-}
-
-.main-content {
-  margin-top: 60px;
-  margin-left: 0;
-}
-
-@media (min-width: 768px) {
-  .sidebar-sticky {
-    width: 25%;
-    transform: translateX(0);
-  }
-
-  .main-content {
-    margin-left: 25%;
-  }
-}
-
-@media (min-width: 992px) {
-  .sidebar-sticky {
-    width: 16.67%;
-  }
-
-  .main-content {
-    margin-left: 16.67%;
-  }
-}
-
-.sidebar-sticky .d-flex {
-  min-height: 100%;
-}
-
-.sidebar-sticky {
-  border-radius: 0;
-  background-color: #fff;
-}
-
-.nav-modern {
-  display: flex;
-  align-items: center;
-  padding: 10px 14px;
-  border-radius: 8px;
-  color: #333;
-  font-weight: 500;
-  transition: background 0.3s ease, color 0.3s ease;
-}
-
-.nav-modern:hover {
-  background-color: #f1f5f9;
-  color: #0d6efd;
-}
-
-.active-modern {
-  background-color: #e0f0ff;
-  color: #0d6efd !important;
-  font-weight: 600;
-  border-left: 4px solid #0d6efd;
-}
-
-@media (max-width: 767px) {
-  .sidebar-sticky {
-    width: 200px;
-    transform: translateX(-100%);
-  }
-
-  .sidebar-sticky.active {
-    transform: translateX(0);
-  }
-
-  .main-content {
-    margin-left: 0;
-    margin-top: 60px;
-  }
-}
-
-.sidebar-backdrop {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 800;
-}
-</style>

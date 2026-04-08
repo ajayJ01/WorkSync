@@ -1,6 +1,6 @@
 import axios from 'axios';
 import router from '@/router'
-import { toast } from 'vue3-toastify'
+import { clearChatStorageForCurrentUser } from '@/utils/chatStorage'
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/',
@@ -15,6 +15,7 @@ api.interceptors.response.use(
     const code = error.response?.data?.code
 
     if (error.response?.status === 401) {
+      clearChatStorageForCurrentUser()
       localStorage.removeItem('token')
       localStorage.removeItem('user')
 

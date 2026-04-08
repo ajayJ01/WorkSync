@@ -1,62 +1,98 @@
 <template>
-  <div class="container-fluid min-vh-100 d-flex justify-content-center align-items-start pt-4 bg-light m-0">
- 
-    <div class="card shadow-lg rounded-4 border-0">
-      <div class="text-center mb-4">
-        <i class="bi bi-person-plus-fill fs-2 text-success"></i>
-        <p class="text-muted mb-0 small">Register a user with a role to manage tasks</p>
+  <div class="d-flex flex-column flex-grow-1 w-100 min-w-0">
+    <div class="task-list-page px-2 px-md-3 py-3 flex-grow-1 w-100">
+      <div class="ws-panel task-list-panel ws-register-panel">
+        <div class="ws-hero ws-register-hero">
+          <div class="d-flex align-items-start gap-3 flex-wrap">
+            <div class="ws-register-avatar-ring" aria-hidden="true">
+              <div class="ws-register-avatar-inner">
+                <i class="bi bi-person-plus"></i>
+              </div>
+            </div>
+            <div class="min-w-0 flex-grow-1">
+              <p class="ws-hero-kicker">Team</p>
+              <h2 class="ws-hero-title">Create user</h2>
+              <p class="ws-hero-sub">
+                Register someone with a role so they can sign in and work on tasks in WorkSync.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <form class="ws-register-form" @submit.prevent="handleRegister">
+          <div class="form-floating mb-3">
+            <input
+              id="floatingName"
+              v-model="name"
+              type="text"
+              class="form-control"
+              placeholder="John Doe"
+              autocomplete="name"
+              required
+            />
+            <label for="floatingName">Full name</label>
+          </div>
+
+          <div class="form-floating mb-3">
+            <input
+              id="floatingEmail"
+              v-model="email"
+              type="email"
+              class="form-control"
+              placeholder="name@example.com"
+              autocomplete="email"
+              required
+            />
+            <label for="floatingEmail">Email address</label>
+          </div>
+
+          <div class="form-floating mb-3">
+            <input
+              id="floatingPassword"
+              v-model="password"
+              type="password"
+              class="form-control"
+              placeholder="Password"
+              autocomplete="new-password"
+              required
+            />
+            <label for="floatingPassword">Password</label>
+          </div>
+
+          <div class="form-floating mb-4">
+            <select id="floatingRole" v-model="role" class="form-select" required>
+              <option disabled value="">Select a role</option>
+              <option value="admin">Admin</option>
+              <option value="user">User</option>
+            </select>
+            <label for="floatingRole">Role</label>
+          </div>
+
+          <button type="submit" class="ws-btn-gradient ws-register-submit w-100">
+            <i class="bi bi-check-lg" aria-hidden="true"></i>
+            Register user
+          </button>
+        </form>
       </div>
-
-      <form @submit.prevent="handleRegister">
-        <div class="form-floating mb-3">
-          <input v-model="name" type="text" class="form-control" id="floatingName" placeholder="John Doe" required />
-          <label for="floatingName">Full Name</label>
-        </div>
-
-        <div class="form-floating mb-3">
-          <input v-model="email" type="email" class="form-control" id="floatingEmail" placeholder="name@example.com" required />
-          <label for="floatingEmail">Email Address</label>
-        </div>
-
-        <div class="form-floating mb-3">
-          <input v-model="password" type="password" class="form-control" id="floatingPassword" placeholder="Password" required />
-          <label for="floatingPassword">Password</label>
-        </div>
-
-        <div class="form-floating mb-4">
-          <select v-model="role" class="form-select" id="floatingRole" required>
-            <option disabled value="">Select a role</option>
-            <option value="admin">Admin</option>
-            <option value="user">User</option>
-          </select>
-          <label for="floatingRole">Role</label>
-        </div>
-
-        <button type="submit" class="btn btn-success w-100 py-2 shadow-sm">
-          <i class="bi bi-check-circle me-2"></i>Register
-        </button>
-      </form>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, getCurrentInstance } from 'vue';
-import { request } from '@/services/apiWrapper';
-import { useRouter } from 'vue-router';
+import { ref, getCurrentInstance } from "vue";
+import { request } from "@/services/apiWrapper";
 
 const { appContext } = getCurrentInstance();
 const toast = appContext.config.globalProperties.$toast;
 
-const router = useRouter();
-const name = ref('');
-const email = ref('');
-const password = ref('');
-const role = ref('');
+const name = ref("");
+const email = ref("");
+const password = ref("");
+const role = ref("");
 
 const handleRegister = async () => {
   try {
-    const [data, error] = await request('post', '/register', {
+    const [data, error] = await request("post", "/register", {
       name: name.value,
       email: email.value,
       password: password.value,
@@ -72,63 +108,14 @@ const handleRegister = async () => {
         toast.error(error.message);
       }
     } else {
-      toast.success(data.message || 'Registered successfully!');
+      toast.success(data.message || "Registered successfully!");
+      name.value = "";
+      email.value = "";
+      password.value = "";
+      role.value = "";
     }
-  } catch (err) {
-    toast.error('Unexpected error occurred. Please try again later.');
+  } catch (_err) {
+    toast.error("Unexpected error occurred. Please try again later.");
   }
 };
 </script>
-
-<style scoped>
-
-.card {
-  max-width: 450px;
-  width: 100%;
-  padding: 1.9rem;
-  margin: 0 !important;
-}
-
-.form-control,
-.form-select {
-  font-size: 0.9rem;
-}
-
-.form-floating > label {
-  font-size: 0.9rem;
-}
-
-.btn {
-  font-size: 0.9rem;
-  padding: 0.5rem 1rem;
-}
-
-@media (max-width: 576px) {
-  .card {
-    max-width: 90%;
-    padding: 1rem;
-  }
-
-  .form-control,
-  .form-select,
-  .btn {
-    font-size: 0.85rem;
-  }
-
-  .form-floating > label {
-    font-size: 0.85rem;
-  }
-
-  .text-center .fs-2 {
-    font-size: 1.5rem !important;
-  }
-
-  .text-center h5 {
-    font-size: 1.25rem;
-  }
-
-  .text-center p {
-    font-size: 0.8rem;
-  }
-}
-</style>

@@ -1,6 +1,7 @@
 const User = require("../models/User");
 const generateToken = require("../utils/generateToken");
 const { success, error } = require("../utils/response");
+const { clearChatHistory } = require("../utils/aiAnalyst");
 
 exports.registerUser = async (req, reply) => {
   try {
@@ -18,7 +19,7 @@ exports.registerUser = async (req, reply) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      token: generateToken(user._id),
+      token: generateToken(user._id, user.role),
     });
   } catch (err) {
     console.error("Registration Error:", err.message);
@@ -37,13 +38,19 @@ exports.loginUser = async (req, reply) => {
         name: user.name,
         email: user.email,
         role: user.role,
-        token: generateToken(user._id),
+        token: generateToken(user._id, user.role),
       });
     } else {
-      return error(reply, 401, "Invalid email or password");
+      return error(reply, 401, "Invalid e mail or password");
     }
   } catch (err) {
     console.error("Login error:", err);
     return error(reply);
   }
+};
+
+
+exports.logoutUser = async (req, reply) => {
+  clearChatHistory(req.user.id);
+  return success(reply, "Logged out successfully");
 };

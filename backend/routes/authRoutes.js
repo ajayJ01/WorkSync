@@ -1,5 +1,6 @@
 const authController = require("../controllers/authController");
 const authValidation = require("../validations/authValidations.js");
+const authenticate = require("../middlewares/authMiddleware");
 
 async function authRoutes(fastify, options) {
   fastify.post(
@@ -12,6 +13,7 @@ async function authRoutes(fastify, options) {
     { schema: authValidation.login },
     authController.loginUser
   );
+  fastify.post("/logout", { preHandler: authenticate }, authController.logoutUser);
 }
 
 module.exports = authRoutes;

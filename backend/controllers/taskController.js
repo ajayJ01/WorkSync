@@ -1,6 +1,40 @@
 const Task = require("../models/Task");
 const { success, error, notFound, conflict } = require("../utils/response");
 const { uploadFile } = require("../utils/fileUpload");
+const { escapeRegexTruncated } = require("../utils/regexSafe");
+
+const MAX_TASKS_PAGE_SIZE = 100;
+const DEFAULT_TASKS_PAGE_SIZE = 10;
+
+function clampTasksPage(n) {
+  const p = parseInt(n, 10);
+  return Number.isFinite(p) && p > 0 ? p : 1;
+}
+
+function clampTasksLimit(n) {
+  const l = parseInt(n, 10);
+  if (!Number.isFinite(l) || l < 1) return DEFAULT_TASKS_PAGE_SIZE;
+  return Math.min(l, MAX_TASKS_PAGE_SIZE);
+}
+
+function parseRangeBoundary(input, isEnd = false) {
+  const raw = String(input || "").trim();
+  if (!raw) return null;
+
+  // Date-only query should be interpreted in LOCAL timezone day boundaries.
+  const m = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) {
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10) - 1;
+    const d = parseInt(m[3], 10);
+    return isEnd
+      ? new Date(y, mo, d, 23, 59, 59, 999)
+      : new Date(y, mo, d, 0, 0, 0, 0);
+  }
+
+  const dt = new Date(raw);
+  return isNaN(dt.getTime()) ? null : dt;
+}
 
 exports.createTask = async (req, reply) => {
   try {
@@ -163,62 +197,90 @@ exports.getAllTasks = async (req, reply) => {
       limit = 10,
       search,
       status,
+      statusIn,
       from,
       to,
       assignedTo,
     } = req.query;
-    const skip = (page - 1) * limit;
+    const pageNum = clampTasksPage(page);
+    const limitNum = clampTasksLimit(limit);
+    const skip = (pageNum - 1) * limitNum;
 
-    const filter = {
-      $and: [
-        {
-          $or: [{ createdBy: userId }, { assignedTo: userId }],
-        },
-      ],
-    };
+    const isAdmin = req.user?.role === "admin";
+    const andParts = [];
+    if (!isAdmin) {
+      andParts.push({
+        $or: [{ createdBy: userId }, { assignedTo: userId }],
+      });
+    }
 
     if (search) {
-      filter.$and.push({
-        $or: [
-          { title: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } },
-        ],
-      });
+      const safeSearch = escapeRegexTruncated(search);
+      if (safeSearch) {
+        andParts.push({
+          $or: [
+            { title: { $regex: safeSearch, $options: "i" } },
+            { description: { $regex: safeSearch, $options: "i" } },
+          ],
+        });
+      }
     }
 
     if (status) {
-      filter.$and.push({ status });
+      andParts.push({ status });
+    }
+    if (statusIn) {
+      const list = String(statusIn)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length) andParts.push({ status: { $in: list } });
     }
 
     if (from && to) {
-      filter.$and.push({
-        dueDate: {
-          $gte: new Date(from),
-          $lte: new Date(to + "T23:59:59"),
-        },
-      });
+      const fromDate = parseRangeBoundary(from, false);
+      const toDate = parseRangeBoundary(to, true);
+      if (fromDate && toDate) {
+        andParts.push({
+          dueDate: {
+            $gte: fromDate,
+            $lte: toDate,
+          },
+        });
+      }
     }
 
     if (assignedTo) {
-      const assignedIds = assignedTo.split(",");
-      filter.$and.push({
-        assignedTo: { $in: assignedIds },
-      });
+      const raw = String(assignedTo)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const assignedIds = raw.filter((id) => /^[a-f\d]{24}$/i.test(id));
+      if (raw.length && assignedIds.length === 0) {
+        return error(reply, 400, "assignedTo must be valid comma-separated user IDs.");
+      }
+      if (assignedIds.length) {
+        andParts.push({
+          assignedTo: { $in: assignedIds },
+        });
+      }
     }
+
+    const filter = andParts.length ? { $and: andParts } : {};
 
     const totalCount = await Task.countDocuments(filter);
 
     const tasks = await Task.find(filter)
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .populate("assignedTo", "name email")
       .populate("createdBy", "name email")
       .sort({ createdAt: -1 });
 
     return success(reply, "Tasks fetched successfully", {
       tasks,
-      totalPages: Math.ceil(totalCount / limit),
-      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / limitNum) || 1,
+      currentPage: pageNum,
       totalCount,
     });
   } catch (err) {
@@ -230,8 +292,10 @@ exports.getAllTasks = async (req, reply) => {
 exports.getMyTasks = async (req, reply) => {
   try {
     const userId = req.user.id;
-    const { page = 1, limit = 10, search, status, from, to } = req.query;
-    const skip = (page - 1) * limit;
+    const { page = 1, limit = 10, search, status, statusIn, from, to } = req.query;
+    const pageNum = clampTasksPage(page);
+    const limitNum = clampTasksLimit(limit);
+    const skip = (pageNum - 1) * limitNum;
 
     const filter = {
       assignedTo: userId,
@@ -240,25 +304,39 @@ exports.getMyTasks = async (req, reply) => {
     const andConditions = [];
 
     if (search) {
-      andConditions.push({
-        $or: [
-          { title: { $regex: search, $options: "i" } },
-          { description: { $regex: search, $options: "i" } },
-        ],
-      });
+      const safeSearch = escapeRegexTruncated(search);
+      if (safeSearch) {
+        andConditions.push({
+          $or: [
+            { title: { $regex: safeSearch, $options: "i" } },
+            { description: { $regex: safeSearch, $options: "i" } },
+          ],
+        });
+      }
     }
 
     if (status) {
       andConditions.push({ status });
     }
+    if (statusIn) {
+      const list = String(statusIn)
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (list.length) andConditions.push({ status: { $in: list } });
+    }
 
     if (from && to) {
-      andConditions.push({
-        dueDate: {
-          $gte: new Date(from),
-          $lte: new Date(to + "T23:59:59"),
-        },
-      });
+      const fromDate = parseRangeBoundary(from, false);
+      const toDate = parseRangeBoundary(to, true);
+      if (fromDate && toDate) {
+        andConditions.push({
+          dueDate: {
+            $gte: fromDate,
+            $lte: toDate,
+          },
+        });
+      }
     }
 
     if (andConditions.length > 0) {
@@ -269,15 +347,15 @@ exports.getMyTasks = async (req, reply) => {
 
     const tasks = await Task.find(filter)
       .skip(skip)
-      .limit(parseInt(limit))
+      .limit(limitNum)
       .populate("assignedTo", "name email")
       .populate("createdBy", "name email")
       .sort({ createdAt: -1 });
 
     return success(reply, "My Tasks fetched successfully", {
       tasks,
-      totalPages: Math.ceil(totalCount / limit),
-      currentPage: parseInt(page),
+      totalPages: Math.ceil(totalCount / limitNum) || 1,
+      currentPage: pageNum,
       totalCount,
     });
   } catch (err) {
