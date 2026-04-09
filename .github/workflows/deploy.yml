@@ -24,27 +24,24 @@ jobs:
           npm install
           npm run build
 
-      - name: Copy build to EC2
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          source: "frontend/dist/*"
-          target: "/var/www/html/"
-          strip_components: 2
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
 
-      - name: Deploy Backend to EC2
-        uses: appleboy/ssh-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            cd /home/ubuntu/WorkSync
-            git fetch origin main
-            git reset --hard origin/main
-            cd backend
-            npm install
-            pm2 describe worksync-backend > /dev/null 2>&1 && pm2 restart worksync-backend || pm2 start server.js --name worksync-backend
-            pm2 save
+      - name: Copy build to EC2
+        run: |
+          rsync -avz --delete frontend/dist/ ubuntu@${{ secrets.EC2_HOST }}:/var/www/html/
+
+      - name: Deploy Backend
+        run: |
+          ssh ubuntu@${{ secrets.EC2_HOST }} "
+            cd /home/ubuntu/WorkSync &&
+            git fetch origin main &&
+            git reset --hard origin/main &&
+            cd backend &&
+            npm install &&
+            pm2 describe worksync-backend > /dev/null 2>&1 && pm2 restart worksync-backend || pm2 start server.js --name worksync-backend &&
+            pm2 save"
