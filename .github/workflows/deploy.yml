@@ -19,14 +19,15 @@ jobs:
           script: |
             cd /home/ubuntu/WorkSync
             git pull origin main
-            
+
             # Backend restart
             cd backend
             npm install
-            pm2 restart worksync-backend
-            
+            pm2 describe worksync-backend > /dev/null 2>&1 && pm2 restart worksync-backend || pm2 start server.js --name worksync-backend
+            pm2 save
+
             # Frontend rebuild
             cd ../frontend
             npm install
             npm run build
-            sudo cp -r dist/* /var/www/html/
+            cp -r dist/* /var/www/html/
