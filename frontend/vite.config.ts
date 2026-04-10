@@ -3,6 +3,7 @@ const vue = require('@vitejs/plugin-vue');
 const path = require('path');
 
 module.exports = defineConfig({
+  base: '/WorkSync/',
   plugins: [vue()],
     server: {
     host: 'localhost',

@@ -6,40 +6,55 @@ on:
       - main
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+
+    env:
+      PROJECT_NAME: WorkSync
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Build Frontend
-        run: |
-          cd frontend
-          npm install
-          npm run build
-
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.0
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
-          command_timeout: 30m
           script: |
             cd /home/ubuntu/WorkSync
+
+            # 🔁 Pull latest code
             git fetch origin main
             git reset --hard origin/main
+
+            # 🔥 BACKEND
             cd backend
             npm install
-            pm2 describe worksync-backend > /dev/null 2>&1 && pm2 restart worksync-backend || pm2 start server.js --name worksync-backend
+
+            pm2 describe worksync-backend > /dev/null 2>&1 && \
+            pm2 restart worksync-backend || \
+            pm2 start server.js --name worksync-backend
+
             pm2 save
+
+            # 🔥 FRONTEND
             cd ../frontend
             npm install
             npm run build
-            cp -r dist/* /var/www/html/
+
+            # 🚀 Deploy frontend
+            PROJECT_PATH=/var/www/$PROJECT_NAME
+
+            sudo mkdir -p $PROJECT_PATH
+            sudo rm -rf $PROJECT_PATH/*
+            sudo cp -r dist/* $PROJECT_PATH/
+
+            # 🔁 Restart nginx
+            sudo systemctl restart nginx
