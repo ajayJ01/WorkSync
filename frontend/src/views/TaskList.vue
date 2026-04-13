@@ -880,11 +880,16 @@ const handleTaskEdit = async (task) => {
   showBootstrapModal(createTaskModal);
 };
 
-const getFullFileUrl = (relativePath) => {
+const getFullFileUrl = (fileUrl) => {
+  if (!fileUrl) return '';
+  // Agar already full URL hai (S3) toh seedha return karo
+  if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+    return fileUrl;
+  }
+  // Purani files ke liye (EC2 pe stored)
   const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/';
-  return `${base.replace(/\/$/, '')}${relativePath}`;
+  return `${base.replace(/\/$/, '')}${fileUrl}`;
 };
-
 
 const isImage = (filePath) => {
   return /\.(jpg|jpeg|png|webp)$/i.test(filePath);
